@@ -1,0 +1,11 @@
+packages:
+  - "."
+  - "shared"
+  - "extension"
+
+onlyBuiltDependencies:
+  - esbuild
+
+ignoredBuiltDependencies:
+  - sharp
+  - unrs-resolver

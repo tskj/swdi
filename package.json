@@ -1,0 +1,43 @@
+{
+  "name": "swdi",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "node node_modules/next/dist/bin/next start",
+    "lint": "eslint",
+    "typecheck": "tsc --noEmit && tsc -p shared/tsconfig.json && tsc -p extension/tsconfig.json",
+    "test": "vitest run",
+    "db:generate": "drizzle-kit generate",
+    "db:migrate": "node scripts/migrate.mjs",
+    "ext:build": "pnpm --filter @swdi/extension build",
+    "cicd": "pnpm typecheck && pnpm lint && pnpm test && pnpm ext:build && DATABASE_URL=postgresql://build:build@localhost:5432/build pnpm build"
+  },
+  "dependencies": {
+    "@swdi/shared": "workspace:*",
+    "drizzle-orm": "^0.45.2",
+    "next": "16.2.6",
+    "postgres": "^3.4.9",
+    "react": "19.2.4",
+    "react-dom": "19.2.4",
+    "server-only": "^0.0.1",
+    "zod": "^4.4.3"
+  },
+  "devDependencies": {
+    "@eslint/eslintrc": "^3",
+    "@playwright/test": "^1.61.1",
+    "@tailwindcss/postcss": "^4",
+    "@types/node": "^25.9.1",
+    "@types/react": "^19",
+    "@types/react-dom": "^19",
+    "drizzle-kit": "^0.31.2",
+    "eslint": "^9",
+    "eslint-config-next": "16.2.6",
+    "tailwindcss": "^4",
+    "tsx": "^4.22.3",
+    "typescript": "^5",
+    "vitest": "^4.1.7"
+  },
+  "packageManager": "pnpm@10.10.0"
+}

@@ -1,0 +1,61 @@
+@import "tailwindcss";
+
+/* corner-shape feature flag: csR() in src/lib/squircle.ts resolves its enhanced radius
+   only where superellipse corners actually render (Chromium 139+). */
+:root { --cs: 0; }
+@supports (corner-shape: squircle) {
+  :root { --cs: 1; }
+}
+
+/* Palette. Paper and ink, with the extension's overlay colors (marker green, changed amber)
+   as the only accents, so the site and the product share one identity. */
+:root {
+  --paper:    #f6f2ea;
+  --card:     #fdfbf6;
+  --ink:      #26221b;
+  --ink-soft: #6d6557;
+  --line:     #e3dccd;
+
+  --green:      #4f7f63;
+  --green-soft: rgba(79, 127, 99, 0.55);
+  --amber:      #b98a35;
+  --amber-soft: rgba(185, 138, 53, 0.6);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --paper:    #151310;
+    --card:     #1c1915;
+    --ink:      #eae4d7;
+    --ink-soft: #a09884;
+    --line:     #2f2a21;
+
+    --green:      #7fac90;
+    --green-soft: rgba(127, 172, 144, 0.55);
+    --amber:      #d0a45a;
+    --amber-soft: rgba(208, 164, 90, 0.6);
+  }
+}
+
+body {
+  background: var(--paper);
+  color: var(--ink);
+}
+
+.font-display { font-family: var(--font-display), Georgia, serif; }
+.font-body    { font-family: var(--font-body), Georgia, serif; }
+
+/* The read-marker motif, identical in spirit to the extension's content.css:
+   an inset bar in the margin that shifts no layout. */
+.marker       { box-shadow: inset 3px 0 0 0 var(--green-soft); }
+.marker-amber { box-shadow: inset 3px 0 0 0 var(--amber-soft); }
+
+.read-dot {
+  display: inline-block;
+  width:  0.42em;
+  height: 0.42em;
+  margin-left: 0.28em;
+  border-radius: 50%;
+  vertical-align: super;
+  background: var(--green);
+}
