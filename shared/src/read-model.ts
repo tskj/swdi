@@ -37,7 +37,9 @@ export function targetReadLevel(summary: PageSummary, fragment: string | null): 
 }
 
 export function summarize(record: PageRecord): PageSummary {
-  const sections: Record<string, SectionStats> = {};
+  // Null prototype: section ids are page-controlled strings, and a key like
+  // "__proto__" on a plain object would silently corrupt the accumulator.
+  const sections: Record<string, SectionStats> = Object.create(null);
   let read = 0;
 
   for (const entry of record.outline) {

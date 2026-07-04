@@ -38,6 +38,13 @@ function render(state: PopupState) {
     changed.hidden      = false;
     changed.textContent = `${state.changed} paragraphs are new or changed since you read this page.`;
   }
+
+  const known = state.badges.read + state.badges.partial;
+  if (known > 0) {
+    const links = el("links");
+    links.hidden      = false;
+    links.textContent = `${known} links here point to things you have read.`;
+  }
 }
 
 function showUntracked() {

@@ -17,6 +17,11 @@ const newsreader = Newsreader({
 export const metadata: Metadata = {
   title: "SWDI",
   description: "Remember what you read, and pay the people who wrote it.",
+  // Tells the Dark Reader extension to leave the page alone: the palette in globals.css
+  // already follows prefers-color-scheme, and Dark Reader's heuristics sometimes layer
+  // an inversion filter on top of an already-dark page. The lock meta is that project's
+  // sanctioned opt-out for sites with native dark mode.
+  other: { "darkreader-lock": "true" },
 };
 
 export default function RootLayout({

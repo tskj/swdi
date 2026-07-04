@@ -50,4 +50,9 @@ describe("splitLinkTarget", () => {
   it("decodes encoded fragments", () => {
     expect(splitLinkTarget("https://example.com/a#b%20c")?.fragment).toBe("b c");
   });
+
+  it("survives malformed percent-encoding in third-party fragments", () => {
+    expect(splitLinkTarget("https://example.com/a#100%")?.fragment).toBe("100%");
+    expect(splitLinkTarget("https://example.com/a#%E0%A4%A")?.fragment).toBe("%E0%A4%A");
+  });
 });

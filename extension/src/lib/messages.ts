@@ -24,6 +24,7 @@ export const popupStateSchema = z.object({
   read:    z.number(),
   changed: z.number(),
   overlay: z.boolean(),
+  badges:  z.object({ read: z.number(), partial: z.number() }),
 });
 
 export type BadgeMessage      = z.infer<typeof badgeMessageSchema>;

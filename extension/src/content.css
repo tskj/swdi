@@ -4,22 +4,25 @@
 .swdi-read { box-shadow: inset 3px 0 0 0 rgba(92, 138, 111, 0.5); }
 .swdi-new  { box-shadow: inset 3px 0 0 0 rgba(196, 148, 66, 0.6); }
 
+/* Dark Reader darkens the page around us (detected in content.ts); brighten the
+   markers so they stay legible. */
+html.swdi-darkreader .swdi-read { box-shadow: inset 3px 0 0 0 rgba(127, 172, 144, 0.6); }
+html.swdi-darkreader .swdi-new  { box-shadow: inset 3px 0 0 0 rgba(208, 164, 90, 0.65); }
+
 html.swdi-overlay-off .swdi-read,
 html.swdi-overlay-off .swdi-new  { box-shadow: none; }
 
-.swdi-badge {
+/* Link-badge hosts are zero-size for every link, read or not; the dot itself lives in a
+   closed shadow root (see applyBadge in content.ts) so the page can neither read it nor
+   reflow because of it. */
+.swdi-badge-host {
+  position: relative;
   display: inline-block;
-  width:  0.42em;
-  height: 0.42em;
-  margin-left: 0.28em;
-  border-radius: 50%;
-  vertical-align: super;
+  width:  0;
+  height: 0;
 }
 
-.swdi-badge[data-level="read"]    { background: rgba(92, 138, 111, 0.95); }
-.swdi-badge[data-level="partial"] { background: rgba(92, 138, 111, 0.45); }
-
-html.swdi-overlay-off .swdi-badge { display: none; }
+html.swdi-overlay-off .swdi-badge-host { display: none; }
 
 .swdi-resume {
   position: fixed;

@@ -30,7 +30,9 @@ These shape the data model and the trust story. Don't break them without explici
 - Monorepo: root Next.js app, `shared/` (schemas + assert/clock), `extension/` (MV3, esbuild,
   no framework). pnpm workspace.
 - Extension code runs on other people's pages: every injected element carries a `swdi-` class,
-  styling must never shift layout, and UI stays quiet (markers are memory aids).
+  styling must never shift layout, and UI stays quiet (markers are memory aids). Anything that
+  encodes reading state beyond the current page (link badges) renders inside a closed shadow
+  root on a uniform zero-size host, so page scripts can never read your history out of the DOM.
 - User-facing text (README, landing, popup copy): no emojis, no em-dashes, no "not X, but Y"
   constructions. Plain, human sentences. This is a hard rule.
 - Design language: paper-and-ink palette with the extension's marker green and changed amber as

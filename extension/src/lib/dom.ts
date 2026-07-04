@@ -29,7 +29,7 @@ export async function collectParagraphs(container: HTMLElement): Promise<Paragra
   let sectionId: string | null = null;
 
   for (const el of nodes) {
-    if (el.matches(HEADING_SELECTOR)) { sectionId = el.id; continue; }
+    if (el.matches(HEADING_SELECTOR)) { sectionId = sanitizeSectionId(el.id); continue; }
 
     if (el.querySelector(BLOCK_SELECTOR) !== null) continue;
     if (el.closest(EXCLUDED_ANCESTOR)   !== null) continue;
@@ -41,4 +41,15 @@ export async function collectParagraphs(container: HTMLElement): Promise<Paragra
   }
 
   return Promise.all(pending.map(async (p) => ({ ...p, hash: await hashText(p.text) })));
+}
+
+// Heading ids are page-controlled and become plain-object keys in records and summaries;
+// prototype-chain names would corrupt those lookups.
+const FORBIDDEN_SECTION_IDS = new Set(["__proto__", "constructor", "prototype"]);
+
+function sanitizeSectionId(id: string): string | null {
+  if (id === "") return null;
+  if (FORBIDDEN_SECTION_IDS.has(id)) return null;
+
+  return id;
 }

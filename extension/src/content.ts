@@ -29,7 +29,6 @@ type Tracked = {
   p:            Paragraph;
   thresholdMs:  number;
   accruedMs:    number;
-  visibleSince: number | null;
   intersecting: boolean;
   read:         boolean;
 };
@@ -60,6 +59,7 @@ async function main() {
   for (const p of paragraphs) record.seen[p.hash] ??= visitIso;
 
   applyOverlayEnabled(settings.overlay);
+  watchDarkReader();
   for (const p of paragraphs) {
     if (p.hash in record.read) p.el.classList.add("swdi-read");
     else if (changed.has(p.hash)) p.el.classList.add("swdi-new");
@@ -102,25 +102,13 @@ async function main() {
       p,
       thresholdMs:  readThresholdMs(p.words),
       accruedMs:    0,
-      visibleSince: null,
       intersecting: false,
       read:         p.hash in record.read,
     });
   }
 
-  function updateRunning(t: Tracked, now: number) {
-    const running = t.intersecting && !document.hidden && !t.read;
-
-    if (running  && t.visibleSince === null) t.visibleSince = now;
-    if (!running && t.visibleSince !== null) {
-      t.accruedMs   += now - t.visibleSince;
-      t.visibleSince = null;
-    }
-  }
-
-  function markRead(t: Tracked, now: number) {
+  function markRead(t: Tracked) {
     t.read = true;
-    updateRunning(t, now);
     io.unobserve(t.p.el);
 
     record.read[t.p.hash] = { at: nowIso(), dwellMs: Math.round(t.accruedMs) };
@@ -134,14 +122,12 @@ async function main() {
   }
 
   const io = new IntersectionObserver((entries) => {
-    const now = nowMs();
     for (const entry of entries) {
       const t = tracked.get(entry.target);
       if (t === undefined || t.read) continue;
 
       t.intersecting = entry.intersectionRatio >= VISIBLE_RATIO
                     || entry.intersectionRect.height >= window.innerHeight * VISIBLE_RATIO;
-      updateRunning(t, now);
     }
   }, { threshold: IO_THRESHOLDS });
 
@@ -149,18 +135,23 @@ async function main() {
     if (!t.read) io.observe(t.p.el);
   }
 
-  document.addEventListener("visibilitychange", () => {
-    const now = nowMs();
-    for (const t of tracked.values()) updateRunning(t, now);
-  });
+  // Dwell accrues per tick with a clamped delta, never as an open wall-clock span:
+  // an OS suspend or display sleep fires no visibility event, so an unbounded
+  // now - since would mark everything in view read the moment the laptop wakes.
+  let lastTickAt = nowMs();
 
   setInterval(() => {
+    const now   = nowMs();
+    const delta = Math.min(now - lastTickAt, TICK_MS * 2);
+    lastTickAt  = now;
+
     if (document.hidden) return;
 
-    const now = nowMs();
     for (const t of tracked.values()) {
-      if (t.read || t.visibleSince === null) continue;
-      if (t.accruedMs + (now - t.visibleSince) >= t.thresholdMs) markRead(t, now);
+      if (t.read || !t.intersecting) continue;
+
+      t.accruedMs += delta;
+      if (t.accruedMs >= t.thresholdMs) markRead(t);
     }
   }, TICK_MS);
 
@@ -226,6 +217,7 @@ async function main() {
         read:    summary.read,
         changed: changed.size,
         overlay: settings.overlay,
+        badges:  badgeCounts(),
       });
       return;
     }
@@ -261,18 +253,71 @@ function freshRecord(url: string): PageRecord {
   };
 }
 
+// Badges live inside a closed shadow root on a zero-size host that every candidate link
+// gets, marked or not. Page scripts see an identical DOM shape and zero layout impact
+// whatever your history says, so which links you have read is not legible to the page.
+// Cross-page reading state must never be readable by page JavaScript.
+const badgeDots   = new WeakMap<HTMLAnchorElement, HTMLElement>();
+const badgeLevels = new Map<HTMLAnchorElement, ReadLevel>();
+
 function applyBadge(a: HTMLAnchorElement, level: ReadLevel) {
-  const existing = a.querySelector<HTMLElement>(":scope > .swdi-badge");
+  let dot = badgeDots.get(a);
+
+  if (dot === undefined) {
+    const host = document.createElement("span");
+    host.className = "swdi-badge-host swdi-ui";
+
+    dot = document.createElement("span");
+    host.attachShadow({ mode: "closed" }).appendChild(dot);
+    a.appendChild(host);
+    badgeDots.set(a, dot);
+  }
+
+  badgeLevels.set(a, level);
 
   if (level === "none") {
-    existing?.remove();
+    dot.style.display = "none";
+    dot.removeAttribute("title");
     return;
   }
 
-  const badge = existing ?? a.appendChild(document.createElement("span"));
-  badge.className     = "swdi-badge swdi-ui";
-  badge.dataset.level = level;
-  badge.title         = level === "read" ? "You have read this" : "You have partly read this";
+  const green = darkReaderActive() ? "127, 172, 144" : "92, 138, 111";
+  const color = level === "read" ? `rgba(${green}, 0.95)` : `rgba(${green}, 0.5)`;
+  dot.style.cssText = `position: absolute; display: block; left: 0.1em; top: -0.85em; width: 0.42em; height: 0.42em; border-radius: 50%; background: ${color};`;
+  dot.title         = level === "read" ? "You have read this" : "You have partly read this";
+}
+
+// We can't darkreader-lock a page we don't own, and when Dark Reader restyles one of
+// the tracked sites our low-alpha markers wash out against the darkened background.
+// Dark Reader stamps data-darkreader-* attributes on <html>; mirror them into a class
+// content.css keys its dark-tuned marker colors on, and follow later toggles.
+function watchDarkReader() {
+  const root = document.documentElement;
+
+  const reflect = () => {
+    const active = root.hasAttribute("data-darkreader-mode") || root.hasAttribute("data-darkreader-scheme");
+    root.classList.toggle("swdi-darkreader", active);
+  };
+
+  new MutationObserver(reflect).observe(root, {
+    attributes:      true,
+    attributeFilter: ["data-darkreader-mode", "data-darkreader-scheme"],
+  });
+  reflect();
+}
+
+function darkReaderActive(): boolean {
+  return document.documentElement.classList.contains("swdi-darkreader");
+}
+
+function badgeCounts(): { read: number; partial: number } {
+  const counts = { read: 0, partial: 0 };
+  for (const level of badgeLevels.values()) {
+    if      (level === "read")    counts.read    += 1;
+    else if (level === "partial") counts.partial += 1;
+  }
+
+  return counts;
 }
 
 function offerResume(paragraphs: Paragraph[], furthestHash: string | null) {

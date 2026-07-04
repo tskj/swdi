@@ -32,7 +32,15 @@ export function splitLinkTarget(raw: string, base?: string): LinkTarget | null {
   if (page === null) return null;
 
   const hash     = new URL(raw, base).hash;
-  const fragment = hash.length > 1 ? decodeURIComponent(hash.slice(1)) : null;
+  const fragment = hash.length > 1 ? safeDecode(hash.slice(1)) : null;
 
   return { page, fragment };
+}
+
+// The URL parser preserves stray percent signs ("#100%" stays "#100%"), and
+// decodeURIComponent throws on them. Third-party pages get to write sloppy anchors
+// without crashing us; an undecodable fragment is used as-is.
+function safeDecode(fragment: string): string {
+  try   { return decodeURIComponent(fragment); }
+  catch { return fragment; }
 }

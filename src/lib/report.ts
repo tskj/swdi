@@ -5,6 +5,8 @@
 // import — so this module stays safe to pull in from client-boundary files. No mailer is wired
 // yet, so report() currently just writes the structured line to the console.
 
+import { nowIso, nowMs } from "@swdi/shared";
+
 export type ReportPayload = {
   kind: string; // dedup bucket — pick stable, hierarchical names ("sync.push-rejected")
   severity?: "warn" | "error";
@@ -48,14 +50,14 @@ function deliver(kind: string, severity: string, message: string, count: number,
 export function report(payload: ReportPayload): void {
   const severity = payload.severity ?? "error";
 
-  const line = JSON.stringify({ at: new Date().toISOString(), level: severity, kind: payload.kind, message: payload.message, ...payload.context });
+  const line = JSON.stringify({ at: nowIso(), level: severity, kind: payload.kind, message: payload.message, ...payload.context });
   if (severity === "error") console.error(line);
   else console.warn(line);
 
   // Client side: log only. The operator watches the server stream.
   if (typeof window !== "undefined") return;
 
-  const now = Date.now();
+  const now = nowMs();
   const existing = buckets.get(payload.kind);
 
   if (!existing) {

@@ -104,8 +104,18 @@ test("read state seeds overlay markers, link badges and the resume pill", async 
 
   await expect.poll(() => page.locator(".swdi-read").count(), { timeout: 15_000 }).toBeGreaterThan(5);
 
-  const linkBadge = page.locator(`a[href*="fixation-and-denial"] .swdi-badge[data-level="read"]`).first();
-  await expect(linkBadge).toBeAttached({ timeout: 15_000 });
+  // Link badges render inside closed shadow roots precisely so the page DOM cannot
+  // reveal them; assert through the extension's own state channel instead.
+  await expect.poll(async () => {
+    const state = await worker.evaluate(async () => {
+      const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+      return chrome.tabs.sendMessage(tab.id, { type: "swdi:get-state" });
+    });
+    return state?.badges?.read ?? 0;
+  }, { timeout: 15_000 }).toBeGreaterThan(0);
+
+  const host = page.locator(`a[href*="fixation-and-denial"] .swdi-badge-host`).first();
+  await expect(host).toBeAttached({ timeout: 15_000 });
 
   const pill = page.locator(".swdi-resume");
   await expect(pill).toBeVisible({ timeout: 15_000 });
