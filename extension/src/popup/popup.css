@@ -1,0 +1,59 @@
+:root { color-scheme: light dark; }
+
+body {
+  width: 260px;
+  margin: 0;
+  padding: 12px 14px 14px;
+  font: 13px/1.45 system-ui, sans-serif;
+}
+
+header {
+  font-weight: 600;
+  margin-bottom: 10px;
+}
+
+#status  { margin: 0 0 10px; opacity: 0.75; }
+#numbers { margin: 6px 0 0; }
+#changed { margin: 4px 0 0; color: light-dark(#8a6420, #d4a952); }
+
+.bar {
+  height: 6px;
+  border-radius: 3px;
+  background: light-dark(#e4e7ea, #3a444e);
+  overflow: hidden;
+}
+
+#bar-fill {
+  height: 100%;
+  width: 0;
+  border-radius: 3px;
+  background: #5c8a6f;
+}
+
+.row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  margin: 12px 0;
+  cursor: pointer;
+}
+
+button {
+  width: 100%;
+  padding: 7px 0;
+  border: 1px solid light-dark(#c9ced3, #4a555f);
+  border-radius: 6px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+
+button:hover { background: light-dark(#f0f2f4, #333d46); }
+
+/* Squircle corners where the platform has them (Chromium 139+); circular elsewhere. */
+@supports (corner-shape: squircle) {
+  button { corner-shape: superellipse(2); border-radius: 12px; }
+  .bar,
+  #bar-fill { corner-shape: superellipse(2); }
+}

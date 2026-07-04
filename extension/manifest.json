@@ -1,0 +1,26 @@
+{
+  "manifest_version": 3,
+  "name": "SWDI Reader",
+  "version": "0.1.0",
+  "description": "Paragraph-level reading memory for hypertext books: see what you have read, resume where you left off, spot what changed.",
+  "permissions": ["storage", "unlimitedStorage"],
+  "background": { "service_worker": "background.js" },
+  "action": { "default_popup": "popup.html", "default_title": "SWDI Reader" },
+  "content_scripts": [
+    {
+      "matches": [
+        "https://meaningness.com/*",
+        "https://*.meaningness.com/*",
+        "https://metarationality.com/*",
+        "https://*.metarationality.com/*",
+        "https://vividness.live/*",
+        "https://*.vividness.live/*",
+        "https://buddhism-for-vampires.com/*",
+        "https://*.buddhism-for-vampires.com/*"
+      ],
+      "js": ["content.js"],
+      "css": ["content.css"],
+      "run_at": "document_idle"
+    }
+  ]
+}

@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <link rel="stylesheet" href="popup.css">
+  <title>SWDI Reader</title>
+</head>
+<body>
+  <header>SWDI Reader</header>
+
+  <section id="page">
+    <p id="status">Checking this page...</p>
+    <div id="stats" hidden>
+      <div class="bar"><div id="bar-fill"></div></div>
+      <p id="numbers"></p>
+      <p id="changed" hidden></p>
+    </div>
+  </section>
+
+  <label class="row">
+    <input type="checkbox" id="overlay">
+    Show read markers on the page
+  </label>
+
+  <button id="export">Export my data</button>
+
+  <script src="popup/popup.js"></script>
+</body>
+</html>

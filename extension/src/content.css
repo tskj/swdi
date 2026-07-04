@@ -1,0 +1,40 @@
+/* Read-state overlay. Everything here must stay quiet: these pages are for reading,
+   and the markers are memory aids, never decoration. Inset box-shadows shift no layout. */
+
+.swdi-read { box-shadow: inset 3px 0 0 0 rgba(92, 138, 111, 0.5); }
+.swdi-new  { box-shadow: inset 3px 0 0 0 rgba(196, 148, 66, 0.6); }
+
+html.swdi-overlay-off .swdi-read,
+html.swdi-overlay-off .swdi-new  { box-shadow: none; }
+
+.swdi-badge {
+  display: inline-block;
+  width:  0.42em;
+  height: 0.42em;
+  margin-left: 0.28em;
+  border-radius: 50%;
+  vertical-align: super;
+}
+
+.swdi-badge[data-level="read"]    { background: rgba(92, 138, 111, 0.95); }
+.swdi-badge[data-level="partial"] { background: rgba(92, 138, 111, 0.45); }
+
+html.swdi-overlay-off .swdi-badge { display: none; }
+
+.swdi-resume {
+  position: fixed;
+  right:  1rem;
+  bottom: 1rem;
+  z-index: 2147483646;
+
+  padding: 0.6em 1em;
+  border: 0;
+  border-radius: 999px;
+  background: #26323e;
+  color: #e8ebee;
+  font: 13px/1 system-ui, sans-serif;
+  cursor: pointer;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.35);
+}
+
+.swdi-resume:hover { background: #33424f; }
