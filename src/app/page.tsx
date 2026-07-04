@@ -25,7 +25,7 @@ export default function Home() {
         </section>
 
         <section className="md:border-l md:border-(--line) md:pl-9">
-          <h2 className="font-display text-[32px] leading-[1.12] font-medium italic text-(--green)">
+          <h2 className="font-display text-[32px] leading-[1.12] font-medium text-(--green)">
             Pay the people who wrote it.
           </h2>
           <p className="newsprint dropcap mt-5">
