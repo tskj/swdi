@@ -61,7 +61,7 @@ pnpm cicd            # everything CI runs
 
 ## Production
 
-The web app deploys on Railway from the `Dockerfile`. Database migrations run in the pre-deploy step and `/api/health` gates the rollout. `railway.json` holds the configuration.
+The web app deploys on Railway from the `Dockerfile`. Every push to `main` deploys automatically. Database migrations run in the pre-deploy step and `/api/health` gates the rollout, so a broken build never receives traffic. `railway.json` holds the configuration.
 
 ## Contributing
 
