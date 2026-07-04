@@ -55,6 +55,36 @@ export function summarize(record: PageRecord): PageSummary {
 }
 
 /**
+ * Fold a concurrently-stored copy of the same page record into `mine` before saving.
+ * Every tab of a page holds its own full record and flushes it whole, so without this
+ * union the last flush wins and silently drops the other tab's reads. Reads and
+ * sightings union (earliest timestamp wins per hash), lastReadAt takes the latest,
+ * and the furthest position resolves against mine's outline order.
+ */
+export function mergeRecords(mine: PageRecord, stored: PageRecord): void {
+  for (const [hash, read] of Object.entries(stored.read)) {
+    const existing = mine.read[hash];
+    if (existing === undefined || read.at < existing.at) mine.read[hash] = read;
+  }
+
+  for (const [hash, seenAt] of Object.entries(stored.seen)) {
+    const existing = mine.seen[hash];
+    if (existing === undefined || seenAt < existing) mine.seen[hash] = seenAt;
+  }
+
+  if (stored.lastReadAt !== null && (mine.lastReadAt === null || stored.lastReadAt > mine.lastReadAt)) {
+    mine.lastReadAt = stored.lastReadAt;
+  }
+
+  if (mine.firstSeenAt > stored.firstSeenAt) mine.firstSeenAt = stored.firstSeenAt;
+
+  const index = new Map(mine.outline.map((entry, i) => [entry.h, i] as const));
+  const ours   = mine.furthestReadHash   === null ? -1 : index.get(mine.furthestReadHash)   ?? -1;
+  const theirs = stored.furthestReadHash === null ? -1 : index.get(stored.furthestReadHash) ?? -1;
+  if (theirs > ours) mine.furthestReadHash = stored.furthestReadHash;
+}
+
+/**
  * Paragraph hashes on the page now that the reader has not read and had never seen
  * before their last reading session. Computed against the record as it was loaded,
  * before this visit merges its own sightings into `seen`.

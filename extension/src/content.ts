@@ -2,6 +2,7 @@ import {
   LinkTarget,
   PageRecord,
   ReadLevel,
+  mergeRecords,
   newSinceLastRead,
   nowIso,
   nowMs,
@@ -75,6 +76,11 @@ async function main() {
   async function flush() {
     if (persistTimer !== null) clearTimeout(persistTimer);
     persistTimer = null;
+
+    // Another tab of this page may have flushed since we loaded; fold its reads in
+    // rather than overwriting them (see mergeRecords).
+    const stored = await loadPageRecord(record.url);
+    if (stored !== null) mergeRecords(record, stored);
 
     await savePage(record, summarize(record));
     refreshLocalBadges();
