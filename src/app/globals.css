@@ -50,6 +50,22 @@ body {
 .marker       { box-shadow: inset 3px 0 0 0 var(--green-soft); }
 .marker-amber { box-shadow: inset 3px 0 0 0 var(--amber-soft); }
 
+/* Newspaper-column treatment for the two-act hero: justified measure and a display-face
+   drop cap. The parallel "For you who..." openings get matching caps on purpose. */
+.newsprint {
+  text-align: justify;
+  hyphens: auto;
+}
+
+.dropcap::first-letter {
+  float: left;
+  font-family: var(--font-display), Georgia, serif;
+  font-size: 2.9em;
+  line-height: 0.8;
+  padding: 0.08em 0.14em 0 0;
+  font-weight: 500;
+}
+
 .read-dot {
   display: inline-block;
   width:  0.42em;

@@ -15,7 +15,7 @@ const newsreader = Newsreader({
 });
 
 export const metadata: Metadata = {
-  title: "SWDI",
+  title: "SWDI, the Sustainable Web & Internet Donations Initiative",
   description: "Remember what you read, and pay the people who wrote it.",
   // Tells the Dark Reader extension to leave the page alone: the palette in globals.css
   // already follows prefers-color-scheme, and Dark Reader's heuristics sometimes layer

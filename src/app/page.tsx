@@ -8,19 +8,35 @@ export default function Home() {
       <p className="text-[13px] font-sans tracking-[0.25em] uppercase text-(--ink-soft)">
         SWDI
       </p>
+      <h1 className="sr-only">SWDI, the Sustainable Web &amp; Internet Donations Initiative</h1>
 
-      <h1 className="font-display mt-4 text-[44px] leading-[1.08] font-medium">
-        Remember what you read.
-        <br />
-        <span className="italic text-(--green)">Pay the people who wrote it.</span>
-      </h1>
+      <div className="mt-10 grid gap-12 md:grid-cols-2 md:gap-0">
+        <section className="md:pr-9">
+          <h2 className="font-display text-[32px] leading-[1.12] font-medium">
+            Remember what you read.
+          </h2>
+          <p className="newsprint dropcap mt-5">
+            For you who reads the old web: hypertext books, essay blogs, long pages that
+            stay open in tabs for weeks and link everywhere. The extension keeps a quiet,
+            paragraph-level memory of your reading. It knows where you stopped, shows
+            which links you have already followed, and notices what changed since you
+            were last there. It lives on your device and answers to nobody else.
+          </p>
+        </section>
 
-      <p className="mt-8 text-[19px]">
-        SWDI is an open source project in two acts. The first is a reading memory for the
-        web, available today as a browser extension. The second is a donation system built
-        on top of it, so the writers you actually read get supported from one monthly
-        budget you control.
-      </p>
+        <section className="md:border-l md:border-(--line) md:pl-9">
+          <h2 className="font-display text-[32px] leading-[1.12] font-medium italic text-(--green)">
+            Pay the people who wrote it.
+          </h2>
+          <p className="newsprint dropcap mt-5">
+            For you who wants your favorite authors to keep writing. Set one monthly
+            amount you are comfortable giving, and your own reading proposes how to
+            divide it among the people behind it. You confirm every split, and the money
+            travels straight from you to the payment channels they already have. No
+            fees, no middlemen, no signup asked of anyone.
+          </p>
+        </section>
+      </div>
 
       <Demo />
 
@@ -62,9 +78,9 @@ export default function Home() {
         <h2 className="font-display text-[26px] font-medium">Where this is going</h2>
         <p className="mt-4">
           Set one monthly budget you are comfortable giving. Your own reading produces a
-          proposed split across the writers behind it. You review it, adjust it, confirm
-          it, and the money goes directly from you to each creator&apos;s existing payment
-          channel, found through an open community registry. Creators never sign up for
+          proposed split across the authors behind it. You review it, adjust it, confirm
+          it, and the money goes directly from you to each author&apos;s existing payment
+          channel, found through an open community registry. Authors never sign up for
           anything. SWDI holds no funds and takes no cut.
         </p>
       </section>
@@ -88,6 +104,7 @@ export default function Home() {
       </section>
 
       <footer className="mt-16 border-t border-(--line) pt-6 font-sans text-[14px] text-(--ink-soft)">
+        <p>SWDI, the Sustainable Web &amp; Internet Donations Initiative.</p>
         <a className="underline underline-offset-4 hover:text-(--ink)" href={GITHUB_URL}>
           Source, issues and discussion on GitHub
         </a>

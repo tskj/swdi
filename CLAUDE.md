@@ -17,7 +17,7 @@ These shape the data model and the trust story. Don't break them without explici
   extension, dashboard and sync payloads alike; TS types are inferred, never hand-declared.
 - **Paragraph identity is a content hash** of normalized rendered text (`shared/src/hash.ts`),
   so read-state survives cosmetic edits and doubles as change detection.
-- **Registry swappable, sync not.** The creator registry is a public commons the dashboard
+- **Registry swappable, sync not.** The registry is a public commons the dashboard
   reaches via a configurable URL. The sync backend is fixed, but export-your-data must always
   work and self-hosting stays a supported path. No data captivity, ever.
 - **Never a financial intermediary.** No funds held, no cut taken. SWDI funds itself as an

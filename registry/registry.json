@@ -1,0 +1,140 @@
+{
+  "v": 1,
+  "updatedAt": "2026-07-04T19:50:00.000Z",
+  "entries": [
+    {
+      "name": "David Chapman",
+      "sites": [
+        "https://meaningness.com",
+        "https://metarationality.com",
+        "https://vividness.live",
+        "https://buddhism-for-vampires.com"
+      ],
+      "payment": [
+        { "kind": "patreon", "url": "https://www.patreon.com/fluidityaudiobooks" }
+      ],
+      "status": "verified",
+      "verifiedAt": "2026-07-04T19:50:00.000Z",
+      "notes": "The active campaign funds audiobook recordings of the hypertext books; patreon.com/meaningness is a patron-only profile with no campaign these days."
+    },
+    {
+      "name": "Sven Slootweg (joepie91)",
+      "sites": ["https://cryto.net/~joepie91"],
+      "payment": [
+        { "kind": "paypal", "url": "https://www.paypal.com/cgi-bin/webscr?cmd=_s-xclick&hosted_button_id=7V4CE97VK7GZ2" },
+        { "kind": "bitcoin", "url": "bitcoin:1G4JG9oFPmpwzEmSH4gnLCdE8hBprdJuDG" }
+      ],
+      "status": "verified",
+      "verifiedAt": "2026-07-04T19:50:00.000Z",
+      "notes": "Donation block sits before the footer of each blog article. The site itself is http-only."
+    },
+    {
+      "name": "Phillip Gibbons (X-Mouse Button Control)",
+      "sites": ["https://highrez.co.uk", "https://dvps.highrez.co.uk"],
+      "payment": [
+        { "kind": "paypal", "url": "https://www.paypal.com/cgi-bin/webscr?cmd=_s-xclick&hosted_button_id=T4ST6GQ6F7DLC" },
+        { "kind": "bitcoin", "url": "bitcoin:1Q2GXzZq3zEX93PqTHXFZKRuz5MsCFRrdi" }
+      ],
+      "status": "verified",
+      "verifiedAt": "2026-07-04T19:50:00.000Z",
+      "notes": "PayPal is a hosted-button form (submits via POST in a browser)."
+    },
+    {
+      "name": "Slime Mold Time Mold",
+      "sites": ["https://achemicalhunger.com", "https://slimemoldtimemold.com"],
+      "payment": [
+        { "kind": "paypal", "url": "https://www.paypal.com/donate?hosted_button_id=VQ2STFAKAMM74" }
+      ],
+      "status": "verified",
+      "verifiedAt": "2026-07-04T19:50:00.000Z",
+      "notes": "Donate button at the bottom of achemicalhunger.com."
+    },
+    {
+      "name": "Rune B (Victor Mono)",
+      "sites": ["https://rubjo.github.io/victor-mono"],
+      "payment": [
+        { "kind": "paypal", "url": "https://www.paypal.com/donate?hosted_button_id=T8Q8AHYNNXELW" },
+        { "kind": "patreon", "url": "https://www.patreon.com/rune_b" }
+      ],
+      "status": "verified",
+      "verifiedAt": "2026-07-04T19:50:00.000Z"
+    },
+    {
+      "name": "RexEgg",
+      "sites": ["https://rexegg.com"],
+      "payment": [
+        { "kind": "buymeacoffee", "url": "https://www.buymeacoffee.com/lutfen" }
+      ],
+      "status": "verified",
+      "verifiedAt": "2026-07-04T19:50:00.000Z"
+    },
+    {
+      "name": "Louie Mantia, Jr.",
+      "sites": ["https://lmnt.me"],
+      "payment": [
+        { "kind": "stripe", "url": "https://donate.stripe.com/eVag0g952cl90aQ9AA" },
+        { "kind": "patreon", "url": "https://www.patreon.com/LouieMantia" }
+      ],
+      "status": "verified",
+      "verifiedAt": "2026-07-04T19:50:00.000Z",
+      "notes": "Links live on the homepage and the /gratuity/ tip page rather than on individual articles."
+    },
+    {
+      "name": "Dan Abramov",
+      "sites": ["https://overreacted.io"],
+      "payment": [
+        { "kind": "kofi", "url": "https://ko-fi.com/gaearon" }
+      ],
+      "status": "verified",
+      "verifiedAt": "2026-07-04T19:50:00.000Z",
+      "notes": "The pay-what-you-like button sits in every post footer."
+    },
+    {
+      "name": "Josh Collinsworth",
+      "sites": ["https://joshcollinsworth.com"],
+      "payment": [
+        { "kind": "kofi", "url": "https://ko-fi.com/collinsworth" }
+      ],
+      "status": "verified",
+      "verifiedAt": "2026-07-04T19:50:00.000Z"
+    },
+    {
+      "name": "Aurora Scharff",
+      "sites": ["https://aurorascharff.no"],
+      "payment": [
+        { "kind": "buymeacoffee", "url": "https://www.buymeacoffee.com/aurorascharff" }
+      ],
+      "status": "verified",
+      "verifiedAt": "2026-07-04T19:50:00.000Z"
+    },
+    {
+      "name": "VSCodeVim",
+      "sites": [
+        "https://github.com/VSCodeVim/Vim",
+        "https://marketplace.visualstudio.com/items?itemName=vscodevim.vim"
+      ],
+      "payment": [
+        { "kind": "buymeacoffee", "url": "https://www.buymeacoffee.com/jasonpoon" },
+        { "kind": "github-sponsors", "url": "https://github.com/sponsors/J-Fields" }
+      ],
+      "status": "verified",
+      "verifiedAt": "2026-07-04T19:50:00.000Z"
+    },
+    {
+      "name": "Alex Flint",
+      "sites": ["https://alexflint.io"],
+      "payment": [],
+      "status": "unverified",
+      "verifiedAt": null,
+      "notes": "The donate page (alexflint.io/donate.html) returned 404 on 2026-07-04 and no other payment channel was found on the site; kept so it can be re-verified if one returns."
+    },
+    {
+      "name": "SWDI",
+      "sites": ["https://github.com/tskj/swdi"],
+      "payment": [],
+      "status": "unverified",
+      "verifiedAt": null,
+      "notes": "The project's own entry, listed like anyone else. No donation channel is set up yet."
+    }
+  ]
+}

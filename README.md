@@ -1,6 +1,6 @@
 # SWDI
 
-SWDI is an open source project about reading on the web: remembering what you have actually read, and eventually paying the people who wrote it.
+SWDI is the Sustainable Web & Internet Donations Initiative, Sweedy among friends. It is an open source project about reading on the web: remembering what you have actually read, and eventually paying the people who wrote it.
 
 It grew out of two itches. The first is that long, link-heavy sites are easy to get lost in. Hypertext books like David Chapman's meaningness.com stay open in tabs for weeks, pages jump around through liberal linking, and you forget which chapters you finished, how far down a page you got, and whether you already read the thing a link points to. The second itch is that supporting the writers you keep coming back to is still inconvenient enough that most goodwill never turns into anything. SWDI approaches both with the same primitive: a private, precise record of what you have read.
 
@@ -15,7 +15,7 @@ The browser extension in `extension/` keeps a paragraph-level reading memory, st
 - Every paragraph is identified by a hash of its text, so your reading record survives cosmetic edits to the page. When content does change after you read it, the changed or added paragraphs are marked.
 - The toolbar badge shows your progress through the current page, and the popup can export everything you have stored as JSON.
 
-It currently runs on a small set of hypertext book sites (meaningness.com, metarationality.com, vividness.live, buddhism-for-vampires.com) while the reading heuristics mature.
+It currently runs on an allowlist of sites: David Chapman's hypertext books (meaningness.com, metarationality.com, vividness.live, buddhism-for-vampires.com) as the reference targets, plus a handful of essay blogs. The list lives in `extension/manifest.json`.
 
 ### Trying it
 
@@ -28,7 +28,9 @@ Then open `chrome://extensions`, enable Developer mode, choose "Load unpacked" a
 
 ## Where it is going
 
-The same record of engagement is the foundation for the donation system described in `docs/VISION.md`. The short version: you set one monthly budget you are comfortable with, your own reading determines a proposed split across the writers you actually read, you review and confirm it, and payments go directly from you to the creators' existing payment links (Patreon, PayPal, and so on), discovered through an open community registry. SWDI holds no funds and takes no cut. If you want to help pay for its servers, the project appears in the registry like any other entry.
+The same record of engagement is the foundation for the donation system described in `docs/VISION.md`. The short version: you set one monthly budget you are comfortable with, your own reading determines a proposed split across the writers you actually read, you review and confirm it, and payments go directly from you to the authors' existing payment links (Patreon, PayPal, and so on), discovered through an open community registry. SWDI holds no funds and takes no cut. If you want to help pay for its servers, the project appears in the registry like any other entry.
+
+The registry has already started, as plain versioned data: `registry/registry.json`, served at `/api/registry`. Each entry maps the places an author's work lives to the payment channels they already have. Adding an author is a pull request, and the test suite validates the data.
 
 Two architectural commitments follow from taking reading data seriously as intimate data:
 
