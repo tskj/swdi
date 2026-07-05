@@ -1,6 +1,7 @@
 export * from "./allocation";
 export * from "./assert";
 export * from "./clock";
+export * from "./donations";
 export * from "./hash";
 export * from "./read-model";
 export * from "./registry";

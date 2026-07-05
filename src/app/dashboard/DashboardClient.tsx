@@ -4,15 +4,21 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 import { z } from "zod";
 import {
+  DonationDoc,
   Registry,
+  ShareAnswer,
+  SyncKeys,
   SyncPayload,
+  budgetSchema,
   decryptPayload,
   deriveSyncKeys,
   nowIso,
   registrySchema,
   secretStrength,
+  shareAnswerSchema,
   syncEnvelopeSchema,
 } from "@swdi/shared";
+import { fetchDonationDoc, putDonationDoc } from "./donations-client";
 import { csR, squircle, superellipse3 } from "@/lib/squircle";
 import { BudgetSection } from "./budget-section";
 import {
@@ -35,25 +41,14 @@ import {
 // ciphertext. There is no account and nothing here identifies a person.
 
 const SECRET_KEY = "swdi:sync-secret";
-const SHARE_KEY  = "swdi:self-share";
 
 const RECENT_LIMIT = 15;
-
-// The one-time funding ask, answered symmetrically and remembered forever
-// (docs/VISION.md, Funding). A no or a zero is never asked again.
-const selfShareSchema = z.object({
-  include:    z.boolean(),
-  pct:        z.number(),
-  answeredAt: z.string(),
-});
-
-type SelfShare = z.infer<typeof selfShareSchema>;
 
 type Stage =
   | { stage: "locked";  error: string | null }
   | { stage: "loading" }
   | { stage: "empty" }
-  | { stage: "open";    pages: PageStats[]; registry: Registry | null };
+  | { stage: "open";    keys: SyncKeys; pages: PageStats[]; registry: Registry | null; doc: DonationDoc };
 
 export function DashboardClient() {
   // Lazy initializers touch localStorage, which exists only in the browser; during
@@ -62,7 +57,6 @@ export function DashboardClient() {
   const [stage, setStage]   = useState<Stage>({ stage: "locked", error: null });
   const [secret, setSecret] = useState("");
   const [remember, setRemember] = useState<boolean>(() => typeof window !== "undefined" && localStorage.getItem(SECRET_KEY) !== null);
-  const [share, setShare]   = useState<SelfShare | null>(() => (typeof window === "undefined" ? null : loadShare()));
 
   useEffect(() => {
     const stored = localStorage.getItem(SECRET_KEY);
@@ -104,8 +98,9 @@ export function DashboardClient() {
 
     if (rememberChoice) localStorage.setItem(SECRET_KEY, phrase);
 
-    const registry = await fetchRegistry();
-    setStage({ stage: "open", pages: payload.pages.map(pageStats), registry });
+    const [registry, fetched] = await Promise.all([fetchRegistry(), fetchDonationDoc(keys)]);
+    const doc = await adoptLegacyLocalConfig(keys, fetched);
+    setStage({ stage: "open", keys, pages: payload.pages.map(pageStats), registry, doc });
   }
 
   function disconnect() {
@@ -115,10 +110,18 @@ export function DashboardClient() {
     setStage({ stage: "locked", error: null });
   }
 
+  // Last write wins server-side; a budget is edited by one human, not merged.
+  function updateDoc(next: DonationDoc) {
+    if (stage.stage !== "open") return;
+
+    setStage({ ...stage, doc: next });
+    void putDonationDoc(stage.keys, next);
+  }
+
   function answerShare(include: boolean, pct: number) {
-    const answered: SelfShare = { include, pct, answeredAt: nowIso() };
-    localStorage.setItem(SHARE_KEY, JSON.stringify(answered));
-    setShare(answered);
+    if (stage.stage !== "open") return;
+
+    updateDoc({ ...stage.doc, share: { include, pct, answeredAt: nowIso() } });
   }
 
   return (
@@ -136,13 +139,13 @@ export function DashboardClient() {
       {stage.stage === "open" && (
         <>
           <Tiles pages={stage.pages} />
-          {share === null && <SupportAsk onAnswer={answerShare} />}
+          {stage.doc.share === null && <SupportAsk onAnswer={answerShare} />}
           {stage.registry !== null && (
-            <BudgetSection pages={stage.pages} registry={stage.registry} sharePct={share !== null && share.include ? share.pct : null} />
+            <BudgetSection pages={stage.pages} registry={stage.registry} doc={stage.doc} onDocChange={updateDoc} />
           )}
           <Recent pages={stage.pages} />
           <Sites pages={stage.pages} />
-          {stage.registry !== null && <Authors registry={stage.registry} pages={stage.pages} share={share} onShareChange={answerShare} />}
+          {stage.registry !== null && <Authors registry={stage.registry} pages={stage.pages} share={stage.doc.share} onShareChange={answerShare} />}
           <footer className="mt-14 flex gap-6 border-t border-(--line) pt-5 font-sans text-[13px] text-(--ink-soft)">
             <button className="underline underline-offset-4 hover:text-(--ink)" onClick={disconnect}>
               Disconnect
@@ -369,7 +372,7 @@ const PAYMENT_LABELS: Record<string, string> = {
 function Authors(props: {
   registry: Registry;
   pages:    PageStats[];
-  share:    SelfShare | null;
+  share:    ShareAnswer | null;
   onShareChange: (include: boolean, pct: number) => void;
 }) {
   const matches = matchAuthors(props.registry, props.pages);
@@ -440,7 +443,7 @@ function BitcoinChip(props: { address: string }) {
   );
 }
 
-function ShareLine(props: { share: SelfShare; onChange: (include: boolean, pct: number) => void }) {
+function ShareLine(props: { share: ShareAnswer; onChange: (include: boolean, pct: number) => void }) {
   const { share } = props;
 
   return (
@@ -463,15 +466,40 @@ function Bar(props: { pct: number }) {
   );
 }
 
-function loadShare(): SelfShare | null {
-  const raw = localStorage.getItem(SHARE_KEY);
+
+/**
+ * The budget and the ask answer used to live in localStorage; adopt them into the
+ * server-side doc once, then clear them so this device stops shadowing the server.
+ */
+async function adoptLegacyLocalConfig(keys: SyncKeys, doc: DonationDoc): Promise<DonationDoc> {
+  const legacyShare  = readLegacy("swdi:self-share", shareAnswerSchema);
+  const legacyBudget = readLegacy("swdi:budget", budgetSchema);
+  if (legacyShare === null && legacyBudget === null) return doc;
+
+  const adopted = {
+    ...doc,
+    share:  doc.share  ?? legacyShare,
+    budget: doc.budget ?? legacyBudget,
+  };
+
+  if (await putDonationDoc(keys, adopted)) {
+    localStorage.removeItem("swdi:self-share");
+    localStorage.removeItem("swdi:budget");
+    localStorage.removeItem("swdi:settlements");
+  }
+
+  return adopted;
+}
+
+function readLegacy<T>(key: string, schema: z.ZodType<T>): T | null {
+  const raw = localStorage.getItem(key);
   if (raw === null) return null;
 
   let json: unknown;
   try   { json = JSON.parse(raw); }
   catch { return null; }
 
-  const parsed = selfShareSchema.safeParse(json);
+  const parsed = schema.safeParse(json);
   return parsed.success ? parsed.data : null;
 }
 

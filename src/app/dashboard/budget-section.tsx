@@ -1,78 +1,63 @@
 "use client";
 
 import { useState } from "react";
-import { z } from "zod";
-import { Registry, SWDI_ALLOCATION_KEY, nowIso, proposalWithShare } from "@swdi/shared";
+import {
+  Budget,
+  DonationDoc,
+  Registry,
+  RegistryEntry,
+  SWDI_ALLOCATION_KEY,
+  Settlement,
+  SettlementLine,
+  nowIso,
+  proposalWithShare,
+} from "@swdi/shared";
 import { csR, squircle, superellipse3 } from "@/lib/squircle";
-import { AuthorEngagement, PageStats, authorEngagement, bitcoinAddress, formatDuration } from "./derive";
+import { AuthorEngagement, PageStats, authorEngagement, formatDuration } from "./derive";
 
-// The donation loop, prototype edition: one monthly amount, split in proportion to
-// your reading, reviewed and adjusted by you, settled by you through each author's
-// own payment channel. Money never touches SWDI; this page only does arithmetic and
-// remembers, on this device, what you decided.
+// The donation loop: one monthly amount, split in proportion to your reading,
+// reviewed and adjusted by you, then paid down as a one-click-per-author list. SWDI
+// never touches the money; each Pay button opens the author's own channel (with the
+// amount prefilled where the provider supports it) and ticks the line off for you.
+// Budget, the ask answer and settlements live in the plaintext donation doc
+// server-side; reading stays in the encrypted blob.
 
-const BUDGET_KEY      = "swdi:budget";
-const SETTLEMENTS_KEY = "swdi:settlements";
+export function BudgetSection(props: {
+  pages:    PageStats[];
+  registry: Registry;
+  doc:      DonationDoc;
+  onDocChange: (doc: DonationDoc) => void;
+}) {
+  const [overrides, setOverrides] = useState<Record<string, number>>({});
 
-const budgetSchema = z.object({
-  amountMinor: z.number().int().positive(),
-  currency:    z.string().min(1).max(8),
-});
-
-const settlementSchema = z.object({
-  month:     z.string(),
-  settledAt: z.string(),
-  lines: z.array(z.object({
-    key:   z.string(),
-    name:  z.string(),
-    minor: z.number(),
-    paid:  z.boolean(),
-  })),
-});
-
-const settlementsSchema = z.record(z.string(), settlementSchema);
-
-type Budget      = z.infer<typeof budgetSchema>;
-type Settlement  = z.infer<typeof settlementSchema>;
-type Settlements = z.infer<typeof settlementsSchema>;
-
-export function BudgetSection(props: { pages: PageStats[]; registry: Registry; sharePct: number | null }) {
-  const [budget, setBudget]           = useState<Budget | null>(loadBudget);
-  const [settlements, setSettlements] = useState<Settlements>(loadSettlements);
-  const [overrides, setOverrides]     = useState<Record<string, number>>({});
-
-  const month = nowIso().slice(0, 7);
-
-  const monthly  = authorEngagement(props.registry, props.pages, month);
-  const allTime  = monthly.length > 0 ? null : authorEngagement(props.registry, props.pages, null);
-  const engaged  = monthly.length > 0 ? monthly : (allTime ?? []);
-  const settled  = settlements[month];
+  const month   = nowIso().slice(0, 7);
+  const monthly = authorEngagement(props.registry, props.pages, month);
+  const engaged = monthly.length > 0 ? monthly : authorEngagement(props.registry, props.pages, null);
+  const settled = props.doc.settlements[month];
+  const budget  = props.doc.budget;
 
   function saveBudget(next: Budget | null) {
-    if (next === null) localStorage.removeItem(BUDGET_KEY);
-    else               localStorage.setItem(BUDGET_KEY, JSON.stringify(next));
-
-    setBudget(next);
     setOverrides({});
+    props.onDocChange({ ...props.doc, budget: next });
   }
 
-  function settle(lines: Settlement["lines"]) {
-    const next = { ...settlements, [month]: { month, settledAt: nowIso(), lines } };
-    localStorage.setItem(SETTLEMENTS_KEY, JSON.stringify(next));
-    setSettlements(next);
+  function saveSettlement(lines: SettlementLine[]) {
+    props.onDocChange({
+      ...props.doc,
+      settlements: { ...props.doc.settlements, [month]: { month, settledAt: nowIso(), lines } },
+    });
   }
 
   function unsettle() {
-    const next = { ...settlements };
-    delete next[month];
-    localStorage.setItem(SETTLEMENTS_KEY, JSON.stringify(next));
-    setSettlements(next);
+    const settlements = { ...props.doc.settlements };
+    delete settlements[month];
+    props.onDocChange({ ...props.doc, settlements });
   }
 
   function markPaid(key: string, paid: boolean) {
     if (settled === undefined) return;
 
-    settle(settled.lines.map((line) => (line.key === key ? { ...line, paid } : line)));
+    saveSettlement(settled.lines.map((line) => (line.key === key ? { ...line, paid } : line)));
   }
 
   return (
@@ -86,17 +71,16 @@ export function BudgetSection(props: { pages: PageStats[]; registry: Registry; s
           budget={budget}
           engaged={engaged}
           usingAllTime={monthly.length === 0 && engaged.length > 0}
-          sharePct={props.sharePct}
-          registry={props.registry}
+          sharePct={props.doc.share !== null && props.doc.share.include ? props.doc.share.pct : null}
           overrides={overrides}
           setOverride={(key, minor) => setOverrides({ ...overrides, [key]: minor })}
           onClearBudget={() => saveBudget(null)}
-          onSettle={settle}
+          onSettle={saveSettlement}
         />
       )}
 
       {settled !== undefined && (
-        <Checklist settlement={settled} registry={props.registry} onPaid={markPaid} onReopen={unsettle} />
+        <PayList settlement={settled} registry={props.registry} currency={budget?.currency ?? "kr"} onPaid={markPaid} onReopen={unsettle} />
       )}
     </section>
   );
@@ -113,8 +97,7 @@ function BudgetSetup(props: { onSave: (budget: Budget) => void }) {
     <div className="mt-4 border border-(--line) bg-(--card) px-6 py-5" style={{ borderRadius: csR(12, 28), ...superellipse3 }}>
       <p className="text-[15px]">
         Choose one monthly amount you are comfortable giving. Your reading proposes how
-        to divide it; you always confirm before anything is paid, and payments go
-        directly from you to each author. Stored on this device only, for now.
+        to divide it; you confirm, and payments go directly from you to each author.
       </p>
       <div className="mt-4 flex items-center gap-2 font-sans text-[14px]">
         <input
@@ -148,15 +131,14 @@ function BudgetSetup(props: { onSave: (budget: Budget) => void }) {
 }
 
 function Proposal(props: {
-  budget:      Budget;
-  engaged:     AuthorEngagement[];
+  budget:       Budget;
+  engaged:      AuthorEngagement[];
   usingAllTime: boolean;
-  sharePct:    number | null;
-  registry:    Registry;
-  overrides:   Record<string, number>;
-  setOverride: (key: string, minor: number) => void;
+  sharePct:     number | null;
+  overrides:    Record<string, number>;
+  setOverride:  (key: string, minor: number) => void;
   onClearBudget: () => void;
-  onSettle:    (lines: Settlement["lines"]) => void;
+  onSettle:     (lines: SettlementLine[]) => void;
 }) {
   const proposed = proposalWithShare(
     props.budget.amountMinor,
@@ -184,8 +166,7 @@ function Proposal(props: {
     <div className="mt-4 border border-(--line) bg-(--card) px-6 py-5" style={{ borderRadius: csR(12, 28), ...superellipse3 }}>
       <p className="text-[15px] text-(--ink-soft)">
         Proposed from your {props.usingAllTime ? "reading so far (nothing read this month yet)" : "reading this month"},
-        in proportion to time spent. Adjust anything; nothing is paid until you settle,
-        and settling only prepares the checklist below.
+        in proportion to time spent. Adjust anything, or let it stand.
       </p>
 
       <ul className="mt-4 space-y-3">
@@ -223,7 +204,7 @@ function Proposal(props: {
           style={{ borderRadius: csR(8, 16), ...squircle }}
           onClick={() => props.onSettle(lines.filter((line) => line.minor > 0).map((line) => ({ ...line, paid: false })))}
         >
-          Settle this month
+          Start paying
         </button>
       </div>
 
@@ -233,6 +214,12 @@ function Proposal(props: {
     </div>
   );
 }
+
+// The channel a Pay button opens, most-preferred first. PayPal donate links accept a
+// prefilled amount; the others open at the author's page and the reader types it.
+const CHANNEL_PRIORITY = ["patreon", "github-sponsors", "kofi", "buymeacoffee", "paypal", "stripe", "liberapay", "custom"];
+
+const CURRENCY_CODES: Record<string, string> = { kr: "NOK", "$": "USD", "€": "EUR", "£": "GBP" };
 
 const PAYMENT_LABELS: Record<string, string> = {
   paypal:            "PayPal",
@@ -244,9 +231,24 @@ const PAYMENT_LABELS: Record<string, string> = {
   liberapay:         "Liberapay",
 };
 
-function Checklist(props: {
+function payTarget(entry: RegistryEntry | undefined, minor: number, currency: string): { url: string; label: string } | null {
+  const usable = (entry?.payment ?? []).filter((m) => m.kind !== "bitcoin");
+  const best   = [...usable].sort((a, b) => CHANNEL_PRIORITY.indexOf(a.kind) - CHANNEL_PRIORITY.indexOf(b.kind))[0];
+  if (best === undefined) return null;
+
+  let url = best.url;
+  if (best.kind === "paypal" && url.includes("/donate")) {
+    const code = CURRENCY_CODES[currency];
+    url += `${url.includes("?") ? "&" : "?"}amount=${(minor / 100).toFixed(2)}${code === undefined ? "" : `&currency_code=${code}`}`;
+  }
+
+  return { url, label: PAYMENT_LABELS[best.kind] ?? "Open" };
+}
+
+function PayList(props: {
   settlement: Settlement;
   registry:   Registry;
+  currency:   string;
   onPaid:     (key: string, paid: boolean) => void;
   onReopen:   () => void;
 }) {
@@ -255,36 +257,42 @@ function Checklist(props: {
   return (
     <div className="mt-4 border border-(--line) bg-(--card) px-6 py-5" style={{ borderRadius: csR(12, 28), ...superellipse3 }}>
       <p className="text-[15px] text-(--ink-soft)">
-        Settled for {props.settlement.month}: pay each author through their own channel
-        and tick them off. {paid} of {props.settlement.lines.length} done.
+        {props.settlement.month}: each Pay opens the author&apos;s own channel and ticks
+        the line off. {paid} of {props.settlement.lines.length} done.
       </p>
 
       <ul className="mt-4 space-y-4">
         {props.settlement.lines.map((line) => {
-          const entry = props.registry.entries.find((e) => e.name === (line.key === SWDI_ALLOCATION_KEY ? "SWDI" : line.key));
+          const entry  = props.registry.entries.find((e) => e.name === (line.key === SWDI_ALLOCATION_KEY ? "SWDI" : line.key));
+          const target = payTarget(entry, line.minor, props.currency);
           return (
             <li key={line.key} className="flex flex-wrap items-center gap-3">
-              <label className="flex min-w-0 flex-1 cursor-pointer items-center gap-2">
-                <input type="checkbox" checked={line.paid} onChange={(e) => props.onPaid(line.key, e.target.checked)} />
-                <span className={`truncate ${line.paid ? "line-through opacity-60" : ""}`}>{line.name}</span>
-              </label>
-              <span className="shrink-0 font-sans text-[13px]">{Math.round(line.minor / 100)}</span>
-              <span className="flex shrink-0 gap-2">
-                {entry === undefined || entry.payment.length === 0
-                  ? <span className="font-sans text-[12px] text-(--ink-soft)">no channel yet</span>
-                  : entry.payment.map((method) => (
-                      <a
-                        key={method.url}
-                        className="border border-(--line) px-2.5 py-1 font-sans text-[12px] hover:bg-(--paper)"
-                        style={{ borderRadius: csR(999, 999), ...squircle }}
-                        href={method.kind === "bitcoin" ? `https://blockchair.com/bitcoin/address/${bitcoinAddress(method.url)}` : method.url}
-                        target="_blank"
-                        rel="noreferrer"
-                      >
-                        {PAYMENT_LABELS[method.kind] ?? "Open"}
-                      </a>
-                    ))}
-              </span>
+              <span className={`min-w-0 flex-1 truncate ${line.paid ? "line-through opacity-60" : ""}`}>{line.name}</span>
+
+              {line.paid && (
+                <button className="shrink-0 font-sans text-[12px] text-(--ink-soft) underline underline-offset-4" onClick={() => props.onPaid(line.key, false)}>
+                  undo
+                </button>
+              )}
+
+              {!line.paid && target !== null && (
+                <a
+                  className="shrink-0 border border-(--line) bg-(--ink) px-4 py-1.5 font-sans text-[13px] text-(--paper)"
+                  style={{ borderRadius: csR(999, 999), ...squircle }}
+                  href={target.url}
+                  target="_blank"
+                  rel="noreferrer"
+                  onClick={() => props.onPaid(line.key, true)}
+                >
+                  Pay {Math.round(line.minor / 100)} {props.currency} on {target.label}
+                </a>
+              )}
+
+              {!line.paid && target === null && (
+                <span className="shrink-0 font-sans text-[12px] text-(--ink-soft)">
+                  {Math.round(line.minor / 100)} {props.currency} · no channel yet
+                </span>
+              )}
             </li>
           );
         })}
@@ -295,32 +303,4 @@ function Checklist(props: {
       </button>
     </div>
   );
-}
-
-function loadBudget(): Budget | null {
-  if (typeof window === "undefined") return null;
-
-  const raw = localStorage.getItem(BUDGET_KEY);
-  if (raw === null) return null;
-
-  let json: unknown;
-  try   { json = JSON.parse(raw); }
-  catch { return null; }
-
-  const parsed = budgetSchema.safeParse(json);
-  return parsed.success ? parsed.data : null;
-}
-
-function loadSettlements(): Settlements {
-  if (typeof window === "undefined") return {};
-
-  const raw = localStorage.getItem(SETTLEMENTS_KEY);
-  if (raw === null) return {};
-
-  let json: unknown;
-  try   { json = JSON.parse(raw); }
-  catch { return {}; }
-
-  const parsed = settlementsSchema.safeParse(json);
-  return parsed.success ? parsed.data : {};
 }
