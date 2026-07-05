@@ -5,10 +5,12 @@ import { useEffect, useState } from "react";
 import { z } from "zod";
 import {
   DonationDoc,
+  DonationPatch,
   Registry,
   ShareAnswer,
   SyncKeys,
   SyncPayload,
+  applyDonationPatch,
   budgetSchema,
   decryptPayload,
   deriveSyncKeys,
@@ -18,7 +20,7 @@ import {
   shareAnswerSchema,
   syncEnvelopeSchema,
 } from "@swdi/shared";
-import { fetchDonationDoc, putDonationDoc } from "./donations-client";
+import { fetchDonationDoc, patchDonationDoc, putDonationDoc } from "./donations-client";
 import { csR, squircle, superellipse3 } from "@/lib/squircle";
 import { BudgetSection } from "./budget-section";
 import {
@@ -110,18 +112,22 @@ export function DashboardClient() {
     setStage({ stage: "locked", error: null });
   }
 
-  // Last write wins server-side; a budget is edited by one human, not merged.
-  function updateDoc(next: DonationDoc) {
+  // Edits are ops: applied optimistically here with the same function the server
+  // runs, then reconciled with the doc the server answers, which folds in whatever
+  // another open session changed meanwhile.
+  function sendPatch(patch: DonationPatch) {
     if (stage.stage !== "open") return;
 
-    setStage({ ...stage, doc: next });
-    void putDonationDoc(stage.keys, next);
+    setStage({ ...stage, doc: applyDonationPatch(stage.doc, patch) });
+    void patchDonationDoc(stage.keys, patch).then((serverDoc) => {
+      if (serverDoc === null) return;
+
+      setStage((current) => (current.stage === "open" ? { ...current, doc: serverDoc } : current));
+    });
   }
 
   function answerShare(include: boolean, pct: number) {
-    if (stage.stage !== "open") return;
-
-    updateDoc({ ...stage.doc, share: { include, pct, answeredAt: nowIso() } });
+    sendPatch({ op: "set-share", share: { include, pct, answeredAt: nowIso() } });
   }
 
   return (
@@ -141,7 +147,7 @@ export function DashboardClient() {
           <Tiles pages={stage.pages} />
           {stage.doc.share === null && <SupportAsk onAnswer={answerShare} />}
           {stage.registry !== null && (
-            <BudgetSection pages={stage.pages} registry={stage.registry} doc={stage.doc} onDocChange={updateDoc} />
+            <BudgetSection pages={stage.pages} registry={stage.registry} doc={stage.doc} onPatch={sendPatch} />
           )}
           <Recent pages={stage.pages} />
           <Sites pages={stage.pages} />

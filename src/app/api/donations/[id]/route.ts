@@ -1,7 +1,7 @@
 import { createHash, timingSafeEqual } from "node:crypto";
 import { eq } from "drizzle-orm";
 import { NextResponse } from "next/server";
-import { donationDocSchema } from "@swdi/shared";
+import { EMPTY_DONATION_DOC, applyDonationPatch, donationDocSchema, donationPatchSchema } from "@swdi/shared";
 import { nowDate } from "@/lib/clock";
 import { db } from "@/lib/db";
 import { donationConfigs } from "@/lib/db/schema";
@@ -65,6 +65,42 @@ export async function PUT(req: Request, ctx: { params: Promise<{ id: string }> }
     });
 
     return stored ? NextResponse.json({ ok: true }) : notFound();
+  });
+}
+
+// Edits arrive as ops and apply against the doc the server holds RIGHT NOW, inside the
+// serializable transaction, so concurrent sessions compose instead of overwriting.
+// The response is the updated doc, letting the client reconcile its optimistic copy.
+export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }> }) {
+  return withRequest(req, async () => {
+    if (rateLimited(`donations:${clientIp(req)}`, REQUESTS_PER_MINUTE)) return tooMany();
+
+    const { id } = await ctx.params;
+    const token  = bearerToken(req);
+    if (!SYNC_ID.test(id) || token === null) return notFound();
+
+    const parsed = donationPatchSchema.safeParse(await req.json().catch(() => null));
+    if (!parsed.success) return NextResponse.json({ error: "bad request" }, { status: 400 });
+
+    const hash    = tokenHash(token);
+    const outcome = await withTransaction({ name: "donations.patch" }, async (tx) => {
+      const row = await tx.select().from(donationConfigs).where(eq(donationConfigs.syncId, id)).maybeSingle("donations.patch");
+
+      if (row === null) {
+        const doc = applyDonationPatch(EMPTY_DONATION_DOC, parsed.data);
+        await tx.insert(donationConfigs).values({ syncId: id, authHash: hash, doc, createdAt: nowDate(), updatedAt: nowDate() });
+        return doc;
+      }
+
+      if (!hashesMatch(row.authHash, hash)) return null;
+
+      const current = donationDocSchema.safeParse(row.doc);
+      const doc     = applyDonationPatch(current.success ? current.data : EMPTY_DONATION_DOC, parsed.data);
+      await tx.update(donationConfigs).set({ doc, updatedAt: nowDate() }).where(eq(donationConfigs.syncId, id));
+      return doc;
+    });
+
+    return outcome === null ? notFound() : NextResponse.json(outcome);
   });
 }
 

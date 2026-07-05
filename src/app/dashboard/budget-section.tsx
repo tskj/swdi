@@ -4,6 +4,7 @@ import { useState } from "react";
 import {
   Budget,
   DonationDoc,
+  DonationPatch,
   Registry,
   RegistryEntry,
   SWDI_ALLOCATION_KEY,
@@ -26,7 +27,7 @@ export function BudgetSection(props: {
   pages:    PageStats[];
   registry: Registry;
   doc:      DonationDoc;
-  onDocChange: (doc: DonationDoc) => void;
+  onPatch:  (patch: DonationPatch) => void;
 }) {
   const [overrides, setOverrides] = useState<Record<string, number>>({});
 
@@ -38,26 +39,19 @@ export function BudgetSection(props: {
 
   function saveBudget(next: Budget | null) {
     setOverrides({});
-    props.onDocChange({ ...props.doc, budget: next });
+    props.onPatch({ op: "set-budget", budget: next });
   }
 
-  function saveSettlement(lines: SettlementLine[]) {
-    props.onDocChange({
-      ...props.doc,
-      settlements: { ...props.doc.settlements, [month]: { month, settledAt: nowIso(), lines } },
-    });
+  function settle(lines: SettlementLine[]) {
+    props.onPatch({ op: "settle", settlement: { month, settledAt: nowIso(), lines } });
   }
 
   function unsettle() {
-    const settlements = { ...props.doc.settlements };
-    delete settlements[month];
-    props.onDocChange({ ...props.doc, settlements });
+    props.onPatch({ op: "unsettle", month });
   }
 
   function markPaid(key: string, paid: boolean) {
-    if (settled === undefined) return;
-
-    saveSettlement(settled.lines.map((line) => (line.key === key ? { ...line, paid } : line)));
+    props.onPatch({ op: "set-paid", month, key, paid });
   }
 
   return (
@@ -75,7 +69,7 @@ export function BudgetSection(props: {
           overrides={overrides}
           setOverride={(key, minor) => setOverrides({ ...overrides, [key]: minor })}
           onClearBudget={() => saveBudget(null)}
-          onSettle={saveSettlement}
+          onSettle={settle}
         />
       )}
 

@@ -17,15 +17,6 @@ merged like reads (latest of delete-vs-recreate wins), plus a migration path for
 Bundle any other payload format wishes into the same revision, since old clients strip
 unknown fields and would silently drop them.
 
-## Concurrent dashboard sessions can overwrite each other's donation edits
-
-The donation config is one server-side document, but each dashboard session holds it in
-memory and PUTs it back whole with no versioning. Two dashboards open at once (two tabs
-is enough) lose one side's edit, and a dashboard left open with a stale copy pushes that
-stale copy back the next time anything is changed in it. Accepted because a budget is
-edited by one human, rarely and briefly; the fix is the same expectedVersion dance the
-sync blob already does, or PATCH-shaped partial updates.
-
 ## The sync rate limiter is in-memory, single-instance
 
 `src/lib/rate-limit.ts` keeps its buckets in process memory: a deploy or restart forgives
