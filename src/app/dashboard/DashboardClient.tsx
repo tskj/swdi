@@ -10,6 +10,7 @@ import {
   deriveSyncKeys,
   nowIso,
   registrySchema,
+  secretStrength,
   syncEnvelopeSchema,
 } from "@swdi/shared";
 import { csR, squircle, superellipse3 } from "@/lib/squircle";
@@ -163,7 +164,9 @@ function Connect(props: {
       <p>
         Your sync key is generated in the extension popup, under Sync. Paste it here and
         your reading opens on this device too. Password managers can save it from this
-        form, so next time it fills itself in.
+        form, so next time it fills itself in. If you prefer your manager to be the
+        source of randomness, generate a long password there (with symbols) and use it
+        as the key on every device instead.
       </p>
 
       {/* A real login form, so Bitwarden, Proton Pass and friends offer to save the key
@@ -203,27 +206,32 @@ function Connect(props: {
   );
 }
 
-// Distinguish "you invented a passphrase" from "this got mangled": the first deserves
-// an explanation of why self-chosen phrases cannot work, since the key alone locates
-// and unlocks the data, so it must be unguessably random.
+// The gate's reasons, explained: the key alone locates and unlocks the data, and a
+// guess is verifiable against the server, so memorable phrases cannot be accepted.
 function rejectionFor(phrase: string): string {
   const trimmed = phrase.trim();
-
   if (trimmed === "") return "Paste your sync key first.";
 
-  if (/\s/.test(trimmed) || trimmed.length < 24) {
-    return "That looks like a phrase you chose yourself, and those cannot work here. The sync key alone locates and unlocks your data, so it has to be truly random: SWDI generates it for you in the extension popup, under Sync. Copy it from there.";
-  }
+  const strength = secretStrength(trimmed);
+  if (strength.kind !== "weak") return "That key was not accepted. Copy it again and paste it unchanged.";
 
-  return "That does not look like a sync key. Copy it from the extension popup, under Sync, and paste it unchanged.";
+  const because = {
+    "too-short":     "it is too short",
+    "has-spaces":    "it looks like a word phrase, and phrases are guessable",
+    "too-uniform":   "it needs symbols, not just letters and digits",
+    "too-guessable": "it is too guessable",
+  }[strength.reason];
+
+  return `That key cannot protect your reading: ${because}. Use the key the extension generates (popup, under Sync), or generate a long password with symbols in your password manager and use that as your key everywhere.`;
 }
 
 function Empty(props: { onBack: () => void }) {
   return (
     <section className="mt-10 border border-(--line) bg-(--card) px-7 py-6" style={{ borderRadius: csR(12, 28), ...superellipse3 }}>
       <p>
-        Nothing is stored under this sync key yet. Turn sync on in the extension popup,
-        read something, and come back.
+        Nothing is stored under this sync key yet. If it is a fresh key, paste it into
+        the extension popup (Sync, then &quot;I already have a key&quot;), read something,
+        and come back; your reading will appear here.
       </p>
       <button className="mt-4 font-sans text-[13px] text-(--ink-soft) underline underline-offset-4" onClick={props.onBack}>
         Try another key

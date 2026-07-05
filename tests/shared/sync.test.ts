@@ -7,6 +7,7 @@ import {
   encryptPayload,
   generateSyncSecret,
   mergePages,
+  secretStrength,
 } from "@swdi/shared";
 
 function page(url: string, partial: Partial<PageRecord> = {}): PageRecord {
@@ -58,6 +59,37 @@ describe("deriveSyncKeys", () => {
     expect(await deriveSyncKeys("not base64url at all!!")).toBeNull();
     expect(await deriveSyncKeys("c2hvcnQ")).toBeNull();
     expect(await deriveSyncKeys("")).toBeNull();
+  });
+
+  it("accepts a password-manager-generated key and derives deterministically from it", async () => {
+    const brought = "xK9$mQ2!pW7@vN4#rT6%";
+
+    const a = await deriveSyncKeys(brought);
+    const b = await deriveSyncKeys(brought);
+
+    expect(a?.syncId).toMatch(/^[0-9a-f]{32}$/);
+    expect(a?.syncId).toBe(b?.syncId);
+    expect(a?.authToken).toBe(b?.authToken);
+  });
+
+  it("rejects memorable phrases however long they are", async () => {
+    expect(await deriveSyncKeys("correct horse battery staple")).toBeNull();
+    expect(await deriveSyncKeys("password123!")).toBeNull();
+    expect(await deriveSyncKeys("MinKattHeterFia1")).toBeNull();
+  });
+});
+
+describe("secretStrength", () => {
+  it("classifies the three kinds", () => {
+    expect(secretStrength(generateSyncSecret()).kind).toBe("generated");
+    expect(secretStrength("xK9$mQ2!pW7@vN4#rT6%").kind).toBe("strong-text");
+    expect(secretStrength("short1!").kind).toBe("weak");
+  });
+
+  it("names the reason a key is refused", () => {
+    expect(secretStrength("aB3$xyz")).toEqual({ kind: "weak", reason: "too-short" });
+    expect(secretStrength("just lowercase words here")).toEqual({ kind: "weak", reason: "has-spaces" });
+    expect(secretStrength("MinKattHeterFia1")).toEqual({ kind: "weak", reason: "too-uniform" });
   });
 });
 
