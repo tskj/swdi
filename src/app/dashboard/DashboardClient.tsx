@@ -14,6 +14,7 @@ import {
   syncEnvelopeSchema,
 } from "@swdi/shared";
 import { csR, squircle, superellipse3 } from "@/lib/squircle";
+import { BudgetSection } from "./budget-section";
 import {
   AuthorMatch,
   PageStats,
@@ -136,6 +137,9 @@ export function DashboardClient() {
         <>
           <Tiles pages={stage.pages} />
           {share === null && <SupportAsk onAnswer={answerShare} />}
+          {stage.registry !== null && (
+            <BudgetSection pages={stage.pages} registry={stage.registry} sharePct={share !== null && share.include ? share.pct : null} />
+          )}
           <Recent pages={stage.pages} />
           <Sites pages={stage.pages} />
           {stage.registry !== null && <Authors registry={stage.registry} pages={stage.pages} share={share} onShareChange={answerShare} />}

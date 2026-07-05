@@ -7,6 +7,7 @@ import { db } from "@/lib/db";
 import { syncBlobs } from "@/lib/db/schema";
 import { pgErrorCode, withTransaction } from "@/lib/db-tx";
 import { withRequest } from "@/lib/log";
+import { clientIp, rateLimited } from "@/lib/rate-limit";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -17,8 +18,14 @@ export const dynamic = "force-dynamic";
 
 const SYNC_ID = /^[0-9a-f]{32}$/;
 
+// A syncing client makes a handful of requests per sync; this is generous for people
+// and hostile to key-guessing.
+const REQUESTS_PER_MINUTE = 120;
+
 export async function GET(req: Request, ctx: { params: Promise<{ id: string }> }) {
   return withRequest(req, async () => {
+    if (rateLimited(`sync:${clientIp(req)}`, REQUESTS_PER_MINUTE)) return tooMany();
+
     const { id } = await ctx.params;
     const token  = bearerToken(req);
     if (!SYNC_ID.test(id) || token === null) return notFound();
@@ -32,6 +39,8 @@ export async function GET(req: Request, ctx: { params: Promise<{ id: string }> }
 
 export async function PUT(req: Request, ctx: { params: Promise<{ id: string }> }) {
   return withRequest(req, async () => {
+    if (rateLimited(`sync:${clientIp(req)}`, REQUESTS_PER_MINUTE)) return tooMany();
+
     const { id } = await ctx.params;
     const token  = bearerToken(req);
     if (!SYNC_ID.test(id) || token === null) return notFound();
@@ -93,6 +102,10 @@ async function runPut(id: string, hash: string, expectedVersion: number, iv: str
 
 function notFound() {
   return NextResponse.json({ error: "not found" }, { status: 404 });
+}
+
+function tooMany() {
+  return NextResponse.json({ error: "slow down" }, { status: 429 });
 }
 
 function bearerToken(req: Request): string | null {

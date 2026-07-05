@@ -105,6 +105,25 @@ describe("encrypt/decrypt roundtrip", () => {
     expect(decrypted).toEqual(original);
   });
 
+  it("compresses payloads and still opens blobs written before compression", async () => {
+    const keys = await deriveSyncKeys(generateSyncSecret());
+    if (keys === null) throw new Error("keys");
+
+    const big = payload(Array.from({ length: 50 }, (_, i) => page(`https://example.com/${i}`)));
+
+    const sealed = await encryptPayload(keys.encKey, big);
+    expect(sealed.data.length).toBeLessThan(JSON.stringify(big).length / 3);
+    expect(await decryptPayload(keys.encKey, sealed.iv, sealed.data)).toEqual(big);
+
+    // A pre-compression blob: plain JSON encrypted with the same key.
+    const iv        = crypto.getRandomValues(new Uint8Array(12));
+    const legacy    = await crypto.subtle.encrypt({ name: "AES-GCM", iv }, keys.encKey, new TextEncoder().encode(JSON.stringify(big)));
+    const b64       = (bytes: Uint8Array) => Buffer.from(bytes).toString("base64url");
+    const reopened  = await decryptPayload(keys.encKey, b64(iv), b64(new Uint8Array(legacy)));
+
+    expect(reopened).toEqual(big);
+  });
+
   it("returns null for the wrong key and for tampered ciphertext", async () => {
     const keysA = await deriveSyncKeys(generateSyncSecret());
     const keysB = await deriveSyncKeys(generateSyncSecret());

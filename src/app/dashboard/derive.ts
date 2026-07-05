@@ -83,6 +83,35 @@ export function matchAuthors(registry: Registry, pages: PageStats[]): AuthorMatc
   return matches.sort((a, b) => b.paragraphsRead - a.paragraphsRead);
 }
 
+export type AuthorEngagement = { entry: RegistryEntry; dwellMs: number; pagesRead: number };
+
+/**
+ * Reading weight per registry author, optionally restricted to a month ("2026-07").
+ * Weight is dwell time on read paragraphs, the same engagement measure everything
+ * else uses; authors with no reading in the window drop out.
+ */
+export function authorEngagement(registry: Registry, pages: PageStats[], monthPrefix: string | null): AuthorEngagement[] {
+  const engaged: AuthorEngagement[] = [];
+
+  for (const entry of registry.entries) {
+    const mine = pages.filter((page) => entry.sites.some((site) => urlUnderSite(page.record.url, site)));
+
+    let dwellMs   = 0;
+    let pagesRead = 0;
+    for (const page of mine) {
+      const reads = Object.values(page.record.read).filter((r) => monthPrefix === null || r.at.startsWith(monthPrefix));
+      if (reads.length === 0) continue;
+
+      pagesRead += 1;
+      dwellMs   += reads.reduce((sum, r) => sum + r.dwellMs, 0);
+    }
+
+    if (dwellMs > 0) engaged.push({ entry, dwellMs, pagesRead });
+  }
+
+  return engaged.sort((a, b) => b.dwellMs - a.dwellMs);
+}
+
 // A bare prefix test would let "https://a.co" claim "https://a.com/..." and
 // "https://a.co.evil.example/...", steering donations at the wrong person. The
 // character after the prefix must be a path/query/fragment boundary.

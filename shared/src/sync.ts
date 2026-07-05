@@ -132,7 +132,7 @@ function ensureBytes(bytes: Uint8Array<ArrayBuffer> | null): Uint8Array<ArrayBuf
 
 export async function encryptPayload(encKey: CryptoKey, payload: SyncPayload): Promise<{ iv: string; data: string }> {
   const iv    = crypto.getRandomValues(new Uint8Array(12));
-  const bytes = new TextEncoder().encode(JSON.stringify(payload));
+  const bytes = await gzipBytes(new TextEncoder().encode(JSON.stringify(payload)));
 
   const ciphertext = await crypto.subtle.encrypt({ name: "AES-GCM", iv }, encKey, bytes);
   return { iv: toBase64Url(iv), data: toBase64Url(new Uint8Array(ciphertext)) };
@@ -144,9 +144,17 @@ export async function decryptPayload(encKey: CryptoKey, iv: string, data: string
   const dataBytes = fromBase64Url(data);
   if (ivBytes === null || dataBytes === null) return null;
 
-  let plaintext: ArrayBuffer;
-  try   { plaintext = await crypto.subtle.decrypt({ name: "AES-GCM", iv: ivBytes }, encKey, dataBytes); }
+  let plaintext: Uint8Array;
+  try   { plaintext = new Uint8Array(await crypto.subtle.decrypt({ name: "AES-GCM", iv: ivBytes }, encKey, dataBytes)); }
   catch { return null; }
+
+  // Payloads are gzipped before encryption (JSON reading records compress ~5x, which
+  // is headroom against the server's size cap). Blobs written before compression
+  // landed hold plain JSON; the gzip magic bytes tell them apart.
+  if (plaintext[0] === 0x1f && plaintext[1] === 0x8b) {
+    try   { plaintext = await gunzipBytes(plaintext); }
+    catch { return null; }
+  }
 
   let json: unknown;
   try   { json = JSON.parse(new TextDecoder().decode(plaintext)); }
@@ -154,6 +162,16 @@ export async function decryptPayload(encKey: CryptoKey, iv: string, data: string
 
   const parsed = syncPayloadSchema.safeParse(json);
   return parsed.success ? parsed.data : null;
+}
+
+async function gzipBytes(bytes: Uint8Array): Promise<Uint8Array<ArrayBuffer>> {
+  const stream = new Blob([bytes as BlobPart]).stream().pipeThrough(new CompressionStream("gzip"));
+  return new Uint8Array(await new Response(stream).arrayBuffer());
+}
+
+async function gunzipBytes(bytes: Uint8Array): Promise<Uint8Array<ArrayBuffer>> {
+  const stream = new Blob([bytes as BlobPart]).stream().pipeThrough(new DecompressionStream("gzip"));
+  return new Uint8Array(await new Response(stream).arrayBuffer());
 }
 
 /**

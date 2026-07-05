@@ -11,6 +11,7 @@
     "test": "vitest run",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "node scripts/migrate.mjs",
+    "registry:verify": "node scripts/verify-registry.mjs",
     "ext:build": "pnpm --filter @swdi/extension build",
     "cicd": "pnpm typecheck && pnpm lint && pnpm test && pnpm ext:build && DATABASE_URL=postgresql://build:build@localhost:5432/build pnpm build"
   },

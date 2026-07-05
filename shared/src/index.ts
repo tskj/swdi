@@ -1,3 +1,4 @@
+export * from "./allocation";
 export * from "./assert";
 export * from "./clock";
 export * from "./hash";
