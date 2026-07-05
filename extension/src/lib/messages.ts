@@ -27,6 +27,15 @@ export const pageFlushedMessageSchema = z.object({
   type: z.literal("swdi:page-flushed"),
 });
 
+export const markPageReadMessageSchema = z.object({
+  type: z.literal("swdi:mark-page-read"),
+});
+
+export const setBackfillMessageSchema = z.object({
+  type:  z.literal("swdi:set-backfill"),
+  value: z.boolean(),
+});
+
 export const syncNowMessageSchema = z.object({
   type: z.literal("swdi:sync-now"),
 });

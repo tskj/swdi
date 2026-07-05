@@ -157,3 +157,40 @@ test("read state seeds overlay markers, link badges and the resume pill", async 
 
   await page.close();
 });
+
+test("backfill: click links to vouch for them, and mark the current page read", async () => {
+  const page = await context.newPage();
+  await page.goto(PAGE_URL);
+  await expect.poll(async () => (await storedRecord())?.outline?.length ?? 0, { timeout: 15_000 }).toBeGreaterThan(10);
+
+  await worker.evaluate(async () => {
+    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+    await chrome.tabs.sendMessage(tab.id, { type: "swdi:set-backfill", value: true });
+  });
+  await expect(page.locator(".swdi-backfill")).toBeVisible();
+
+  // Clicking a link in backfill mode vouches for the target instead of navigating.
+  await page.locator(`a[href*="no-cosmic-plan"]`).first().click();
+  expect(page.url()).toBe(PAGE_URL);
+
+  const stub = await worker.evaluate(async () => {
+    const key = "swdi:page:https://meaningness.com/no-cosmic-plan";
+    return (await chrome.storage.local.get(key))[key];
+  });
+  expect(stub?.assumedReadAt).not.toBeNull();
+
+  await page.keyboard.press("Escape");
+  await expect(page.locator(".swdi-backfill")).not.toBeAttached();
+
+  // Vouch for the current page: every known paragraph becomes read.
+  await worker.evaluate(async () => {
+    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+    await chrome.tabs.sendMessage(tab.id, { type: "swdi:mark-page-read" });
+  });
+  await expect.poll(async () => {
+    const record = await storedRecord();
+    return record !== null && Object.keys(record.read).length === record.outline.length;
+  }, { timeout: 10_000 }).toBe(true);
+
+  await page.close();
+});

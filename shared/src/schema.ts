@@ -24,6 +24,10 @@ export const pageRecordSchema = z.object({
   seen:    z.record(z.string(), z.string()),                               // hash -> first sighting on this page
 
   furthestReadHash: z.string().nullable(),
+
+  // Backfill: the reader vouches they read this page without dwell evidence. Old
+  // records parse via the default; reads materialize on the next real visit.
+  assumedReadAt: z.string().nullable().default(null),
 });
 
 export const sectionStatsSchema = z.object({
@@ -40,6 +44,8 @@ export const pageSummarySchema = z.object({
   read:  z.number(),
   lastReadAt: z.string().nullable(),
   sections:   z.record(z.string(), sectionStatsSchema),
+
+  assumedRead: z.boolean().default(false),
 });
 
 export const SYNC_DEFAULT_BASE_URL = "https://web-production-23890.up.railway.app";

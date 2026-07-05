@@ -94,6 +94,20 @@ function renderPage(state: PopupState) {
 function wirePageHandlers(state: PopupState, tabId: number) {
   if (state.phase === "starting") return;
 
+  // Backfill affordances: vouch for the current page, or enter click-to-mark mode.
+  // Marking works on unsuitable pages too (short pages you still finished reading).
+  if (state.phase !== "paused") el("page-actions").hidden = false;
+
+  el("mark-read").addEventListener("click", async () => {
+    await chrome.tabs.sendMessage(tabId, { type: "swdi:mark-page-read" });
+    el("mark-read").textContent = "Marked as read";
+  });
+
+  el("backfill").addEventListener("click", async () => {
+    await chrome.tabs.sendMessage(tabId, { type: "swdi:set-backfill", value: true });
+    window.close();
+  });
+
   el<HTMLInputElement>("overlay").addEventListener("change", (event) => {
     const checked = (event.target as HTMLInputElement).checked;
     void chrome.tabs.sendMessage(tabId, { type: "swdi:set-overlay", value: checked });

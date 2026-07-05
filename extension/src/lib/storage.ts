@@ -35,6 +35,15 @@ export async function savePage(record: PageRecord, summary: PageSummary): Promis
   });
 }
 
+/**
+ * Remove a page entirely (backfill undo). Note the honest limitation: sync merges are
+ * unions with no tombstones, so a page that already synced can return from the server;
+ * undo within the session, before the debounced sync fires, sticks.
+ */
+export async function removePage(url: string): Promise<void> {
+  await chrome.storage.local.remove([PAGE_PREFIX + url, IDX_PREFIX + url]);
+}
+
 /** Batched read-state lookup for link badges: one storage call for all targets on a page. */
 export async function loadSummaries(urls: string[]): Promise<Map<string, PageSummary>> {
   if (urls.length === 0) return new Map();

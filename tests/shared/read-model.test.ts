@@ -25,6 +25,7 @@ function record(partial: Partial<PageRecord>): PageRecord {
     seen:    {},
 
     furthestReadHash: null,
+    assumedReadAt: null,
     ...partial,
   };
 }

@@ -27,8 +27,13 @@ export function readLevel(total: number, read: number): ReadLevel {
 }
 
 /** The link-badge state for a link target: the whole page, or one section of it. */
+export function summaryReadLevel(summary: PageSummary): ReadLevel {
+  return summary.assumedRead ? "read" : readLevel(summary.total, summary.read);
+}
+
 export function targetReadLevel(summary: PageSummary, fragment: string | null): ReadLevel {
-  if (fragment === null) return readLevel(summary.total, summary.read);
+  if (summary.assumedRead) return "read";
+  if (fragment === null)   return readLevel(summary.total, summary.read);
 
   const section = summary.sections[fragment];
   if (section === undefined) return readLevel(summary.total, summary.read);
@@ -53,7 +58,15 @@ export function summarize(record: PageRecord): PageSummary {
     if (isRead) section.read += 1;
   }
 
-  return { v: 1, title: record.title, total: record.outline.length, read, lastReadAt: record.lastReadAt, sections };
+  return {
+    v: 1,
+    title: record.title,
+    total: record.outline.length,
+    read,
+    lastReadAt: record.lastReadAt,
+    sections,
+    assumedRead: record.assumedReadAt !== null,
+  };
 }
 
 /**
@@ -79,6 +92,10 @@ export function mergeRecords(mine: PageRecord, stored: PageRecord): void {
   }
 
   if (mine.firstSeenAt > stored.firstSeenAt) mine.firstSeenAt = stored.firstSeenAt;
+
+  if (stored.assumedReadAt !== null && (mine.assumedReadAt === null || stored.assumedReadAt < mine.assumedReadAt)) {
+    mine.assumedReadAt = stored.assumedReadAt;
+  }
 
   const index = new Map(mine.outline.map((entry, i) => [entry.h, i] as const));
   const ours   = mine.furthestReadHash   === null ? -1 : index.get(mine.furthestReadHash)   ?? -1;

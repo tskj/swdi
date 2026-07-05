@@ -1,4 +1,4 @@
-import { readLevel, summarize, type PageRecord, type PageSummary, type Registry, type RegistryEntry } from "@swdi/shared";
+import { summarize, summaryReadLevel, type PageRecord, type PageSummary, type Registry, type RegistryEntry } from "@swdi/shared";
 
 // Pure derivations and formatters behind the dashboard views. Read/summary semantics
 // come from the shared read-model helpers; nothing here reinvents them.
@@ -42,7 +42,7 @@ export function overview(pages: PageStats[]): Overview {
   const totals: Overview = { visited: pages.length, finished: 0, paragraphsRead: 0, dwellMs: 0 };
 
   for (const page of pages) {
-    if (readLevel(page.summary.total, page.summary.read) === "read") totals.finished += 1;
+    if (summaryReadLevel(page.summary) === "read") totals.finished += 1;
 
     totals.paragraphsRead += page.summary.read;
     totals.dwellMs        += page.dwellMs;
@@ -125,6 +125,7 @@ function urlUnderSite(url: string, site: string): boolean {
 }
 
 export function percentRead(summary: PageSummary): number {
+  if (summary.assumedRead) return 100;
   if (summary.total === 0) return 0;
 
   return Math.round((summary.read / summary.total) * 100);

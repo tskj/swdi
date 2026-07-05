@@ -13,8 +13,14 @@ import {
   normalizePageUrl,
 } from "@swdi/shared";
 import { Paragraph, collectParagraphs, findArticleContainer, isReadableArticle } from "./lib/dom";
-import { getStateMessageSchema, setOverlayMessageSchema, setSitePausedMessageSchema } from "./lib/messages";
-import { loadPageRecord, loadSettings, loadSummaries, savePage, saveSettings, savePausedHosts } from "./lib/storage";
+import {
+  getStateMessageSchema,
+  markPageReadMessageSchema,
+  setBackfillMessageSchema,
+  setOverlayMessageSchema,
+  setSitePausedMessageSchema,
+} from "./lib/messages";
+import { loadPageRecord, loadSettings, loadSummaries, removePage, savePage, saveSettings, savePausedHosts } from "./lib/storage";
 
 // A paragraph counts as visible for dwell purposes at half its area, or half a viewport
 // for blocks taller than the screen. The extra thresholds make the observer re-fire while
@@ -72,6 +78,17 @@ chrome.runtime.onMessage.addListener((message: unknown, _sender, sendResponse) =
     void savePausedHosts(location.hostname, setPaused.data.value).then(() => sendResponse({ ok: true }));
     return true; // async response
   }
+
+  if (markPageReadMessageSchema.safeParse(message).success) {
+    void markCurrentPageRead().then(() => sendResponse({ ok: true }));
+    return true; // async response
+  }
+
+  const backfill = setBackfillMessageSchema.safeParse(message);
+  if (backfill.success) {
+    setBackfillMode(backfill.data.value);
+    sendResponse({ ok: true });
+  }
 });
 
 main().catch((err) => console.warn("swdi: reader failed to start", err));
@@ -103,6 +120,14 @@ async function main() {
   if (paragraphs.length === 0) return;
 
   const record = stored ?? freshRecord(pageUrl);
+
+  // A backfilled page materializes on its first real visit: every paragraph now on
+  // the page becomes read as of the vouched time, so sections and change detection
+  // work from here on.
+  if (record.assumedReadAt !== null) {
+    for (const p of paragraphs) record.read[p.hash] ??= { at: record.assumedReadAt, dwellMs: 0 };
+    record.lastReadAt ??= record.assumedReadAt;
+  }
 
   // Newness is judged against the record as loaded, before this visit merges its sightings.
   const changed = newSinceLastRead(record, paragraphs.map((p) => p.hash));
@@ -291,6 +316,105 @@ async function main() {
   await flush();
 }
 
+// ---- backfill -------------------------------------------------------------------
+// Two ways to vouch for reading that predates the extension: mark the current page
+// read (popup), and a mode where clicking links marks their targets instead of
+// navigating. Targets never visited get a stub record carrying assumedReadAt; real
+// paragraph state materializes on the first actual visit.
+
+async function markCurrentPageRead(): Promise<void> {
+  const pageUrl = normalizePageUrl(location.href);
+  if (pageUrl === null) return;
+
+  const record = await vouchFor(pageUrl, document.title);
+
+  // If this page is actively tracked, its in-memory record catches up at next flush
+  // via mergeRecords; the overlay refreshes fully on the next load. Do the cheap,
+  // immediately visible part here.
+  if (record !== null) document.querySelectorAll(".swdi-new").forEach((el) => el.classList.remove("swdi-new"));
+}
+
+/** Mark a page read by assertion; returns the saved record. */
+async function vouchFor(pageUrl: string, fallbackTitle: string): Promise<PageRecord | null> {
+  const stored = await loadPageRecord(pageUrl);
+  const record = stored ?? { ...freshRecord(pageUrl), title: fallbackTitle };
+  const at     = nowIso();
+
+  record.assumedReadAt ??= at;
+  record.lastReadAt    ??= at;
+  for (const entry of record.outline) record.read[entry.h] ??= { at: record.assumedReadAt, dwellMs: 0 };
+
+  await savePage(record, summarize(record));
+  chrome.runtime.sendMessage({ type: "swdi:page-flushed" }).catch(() => {});
+  return record;
+}
+
+let backfillTeardown: (() => void) | null = null;
+
+function setBackfillMode(on: boolean) {
+  if (!on) { backfillTeardown?.(); return; }
+  if (backfillTeardown !== null) return;
+
+  const banner = document.createElement("div");
+  banner.className   = "swdi-backfill swdi-ui";
+  banner.textContent = "Backfill: click links to mark them read (click again to undo). Esc to finish.";
+
+  const done = document.createElement("button");
+  done.textContent = "Done";
+  banner.appendChild(done);
+  document.body.appendChild(banner);
+
+  // Pages stubbed during this session, so a second click can undo them.
+  const stubbed = new Set<string>();
+
+  const onClick = (event: MouseEvent) => {
+    const target = event.target;
+    if (!(target instanceof Element)) return;
+    if (target.closest(".swdi-backfill") !== null) return;
+
+    const anchor = target.closest("a[href]");
+    if (!(anchor instanceof HTMLAnchorElement)) return;
+
+    event.preventDefault();
+    event.stopPropagation();
+
+    const link = splitLinkTarget(anchor.href);
+    if (link === null) return;
+
+    void toggleBackfilled(link.page, anchor, stubbed);
+  };
+
+  const onKey = (event: KeyboardEvent) => {
+    if (event.key === "Escape") teardown();
+  };
+
+  function teardown() {
+    document.removeEventListener("click", onClick, true);
+    document.removeEventListener("keydown", onKey, true);
+    banner.remove();
+    backfillTeardown = null;
+  }
+
+  document.addEventListener("click", onClick, true);
+  document.addEventListener("keydown", onKey, true);
+  done.addEventListener("click", teardown);
+  backfillTeardown = teardown;
+}
+
+async function toggleBackfilled(pageUrl: string, anchor: HTMLAnchorElement, stubbed: Set<string>): Promise<void> {
+  if (stubbed.has(pageUrl)) {
+    await removePage(pageUrl);
+    stubbed.delete(pageUrl);
+    applyBadge(anchor, "none");
+    return;
+  }
+
+  const title = (anchor.textContent ?? "").trim().slice(0, 200) || pageUrl;
+  await vouchFor(pageUrl, title);
+  stubbed.add(pageUrl);
+  applyBadge(anchor, "read");
+}
+
 function isPausedHost(blockedHosts: string[], host: string): boolean {
   return blockedHosts.some((blocked) => host === blocked || host.endsWith(`.${blocked}`));
 }
@@ -310,6 +434,7 @@ function freshRecord(url: string): PageRecord {
     seen:    {},
 
     furthestReadHash: null,
+    assumedReadAt: null,
   };
 }
 
