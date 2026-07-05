@@ -52,6 +52,7 @@ export const popupStateSchema = z.discriminatedUnion("phase", [
   }),
   z.object({ phase: z.literal("unsuitable"), host: z.string() }),
   z.object({ phase: z.literal("paused"),     host: z.string() }),
+  z.object({ phase: z.literal("starting"),   host: z.string() }),
 ]);
 
 export type BadgeMessage = z.infer<typeof badgeMessageSchema>;

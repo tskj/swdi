@@ -30,8 +30,8 @@ export function findArticleContainer(doc: Document): ArticleContainer | null {
 // Pages that fail it are silently ignored: apps, dashboards, search results, stores.
 // A semantic container earns lower thresholds; a whole-body fallback must look
 // unmistakably like an article before we track anything.
-const MIN_PARAGRAPHS          = 5;
-const MIN_WORDS               = 150;
+const MIN_PARAGRAPHS          = 3;
+const MIN_WORDS               = 80;
 const MIN_PARAGRAPHS_FALLBACK = 8;
 const MIN_WORDS_FALLBACK      = 300;
 

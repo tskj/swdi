@@ -4,6 +4,7 @@ import {
   PageRecord,
   PageSummary,
   Settings,
+  mergePages,
   pageRecordSchema,
   pageSummarySchema,
   settingsSchema,
@@ -69,9 +70,18 @@ export async function savePausedHosts(host: string, paused: boolean): Promise<vo
   await saveSettings(settings);
 }
 
-/** The full local dataset, for user-initiated export. Data captivity is never the lock-in. */
+/**
+ * The full local dataset, for user-initiated export. Data captivity is never the
+ * lock-in. The sync keyphrase is redacted: anyone holding the export file could
+ * otherwise derive the keys and read or overwrite the synced copy.
+ */
 export async function exportAll(): Promise<Record<string, unknown>> {
-  return chrome.storage.local.get(null);
+  const all = await chrome.storage.local.get(null);
+
+  const settings = settingsSchema.safeParse(all[SETTINGS_KEY]);
+  if (settings.success) all[SETTINGS_KEY] = { ...settings.data, syncSecret: null };
+
+  return all;
 }
 
 /** Every stored page record, for the sync engine. Records from older schemas are skipped. */
@@ -89,17 +99,19 @@ export async function loadAllPages(): Promise<PageRecord[]> {
   return pages;
 }
 
-/** Batch-write merged records with their summaries; one storage call for the whole set. */
-export async function writePages(records: PageRecord[]): Promise<void> {
-  if (records.length === 0) return;
+/**
+ * Fold remote records into local storage one page at a time, each with a fresh read of
+ * the stored copy immediately before the write. A content-script flush can land at any
+ * moment; the per-record read-merge-write keeps the race window to microseconds instead
+ * of spanning the whole sync, so a concurrent flush's reads survive via mergeRecords.
+ */
+export async function foldRemotePages(remote: PageRecord[]): Promise<void> {
+  for (const record of remote) {
+    const stored = await loadPageRecord(record.url);
+    const merged = mergePages(stored === null ? [] : [stored], [record])[0] ?? record;
 
-  const items: Record<string, unknown> = {};
-  for (const record of records) {
-    items[PAGE_PREFIX + record.url] = record;
-    items[IDX_PREFIX + record.url]  = summarize(record);
+    await savePage(merged, summarize(merged));
   }
-
-  await chrome.storage.local.set(items);
 }
 
 const SYNC_META_KEY = "swdi:sync-meta";

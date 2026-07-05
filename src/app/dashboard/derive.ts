@@ -72,7 +72,7 @@ export function matchAuthors(registry: Registry, pages: PageStats[]): AuthorMatc
   const matches: AuthorMatch[] = [];
 
   for (const entry of registry.entries) {
-    const mine = pages.filter((page) => entry.sites.some((site) => page.record.url.startsWith(site)));
+    const mine = pages.filter((page) => entry.sites.some((site) => urlUnderSite(page.record.url, site)));
     if (mine.length === 0) continue;
 
     const pagesRead      = mine.filter((page) => page.summary.read > 0).length;
@@ -81,6 +81,18 @@ export function matchAuthors(registry: Registry, pages: PageStats[]): AuthorMatc
   }
 
   return matches.sort((a, b) => b.paragraphsRead - a.paragraphsRead);
+}
+
+// A bare prefix test would let "https://a.co" claim "https://a.com/..." and
+// "https://a.co.evil.example/...", steering donations at the wrong person. The
+// character after the prefix must be a path/query/fragment boundary.
+function urlUnderSite(url: string, site: string): boolean {
+  const prefix = site.replace(/\/+$/, "");
+  if (url === prefix) return true;
+  if (!url.startsWith(prefix)) return false;
+
+  const next = url[prefix.length];
+  return next === "/" || next === "?" || next === "#";
 }
 
 export function percentRead(summary: PageSummary): number {

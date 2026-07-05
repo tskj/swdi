@@ -20,16 +20,21 @@ export const syncPayloadSchema = z.object({
   pages: z.array(pageRecordSchema),
 });
 
+// The server-side ceiling on one ciphertext blob. Clients must trim what they upload
+// to fit under it (the extension drops the oldest-visited pages from the sync payload,
+// never from local storage) instead of letting every PUT die on a 400 forever.
+export const SYNC_DATA_MAX_CHARS = 8_000_000;
+
 export const syncEnvelopeSchema = z.object({
   version: z.number().int().nonnegative(),
   iv:   z.string().max(64),
-  data: z.string().max(8_000_000),
+  data: z.string().max(SYNC_DATA_MAX_CHARS),
 });
 
 export const syncPutRequestSchema = z.object({
   expectedVersion: z.number().int().nonnegative(), // 0 registers a fresh sync id
   iv:   z.string().max(64),
-  data: z.string().max(8_000_000),
+  data: z.string().max(SYNC_DATA_MAX_CHARS),
 });
 
 export type SyncPayload    = z.infer<typeof syncPayloadSchema>;

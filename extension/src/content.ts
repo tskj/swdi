@@ -56,7 +56,7 @@ let current: Phase = { phase: "starting" };
 chrome.runtime.onMessage.addListener((message: unknown, _sender, sendResponse) => {
   if (getStateMessageSchema.safeParse(message).success) {
     if (current.phase === "tracking") sendResponse({ phase: "tracking", host: current.host, ...current.getState() });
-    else                              sendResponse({ phase: current.phase === "paused" ? "paused" : "unsuitable", host: location.hostname });
+    else                              sendResponse({ phase: current.phase, host: location.hostname });
     return;
   }
 
@@ -92,12 +92,16 @@ async function main() {
   if (container === null) return;
 
   const paragraphs = await collectParagraphs(container.el);
-  if (!isReadableArticle(paragraphs, container.fallback)) {
+  const stored     = await loadPageRecord(pageUrl);
+
+  // The readability gate decides whether to START tracking a page; existing history
+  // overrides it, so a short page a reader already has state for keeps its markers.
+  if (stored === null && !isReadableArticle(paragraphs, container.fallback)) {
     current = { phase: "unsuitable", host };
     return;
   }
+  if (paragraphs.length === 0) return;
 
-  const stored = await loadPageRecord(pageUrl);
   const record = stored ?? freshRecord(pageUrl);
 
   // Newness is judged against the record as loaded, before this visit merges its sightings.

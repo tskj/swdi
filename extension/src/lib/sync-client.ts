@@ -1,20 +1,20 @@
 import {
   PageRecord,
+  SYNC_DATA_MAX_CHARS,
   decryptPayload,
   deriveSyncKeys,
   encryptPayload,
-  mergePages,
   nowIso,
   syncEnvelopeSchema,
 } from "@swdi/shared";
 import { SyncResult } from "./messages";
-import { loadAllPages, loadSettings, loadSyncMeta, saveSyncMeta, writePages } from "./storage";
+import { foldRemotePages, loadAllPages, loadSettings, loadSyncMeta, saveSyncMeta } from "./storage";
 
 // Pull, merge, push. The server never sees plaintext: everything here derives from the
 // keyphrase on this device, and only ciphertext plus the bearer token cross the wire.
 // A 409 means another device pushed since our pull; one pull-merge-retry resolves it.
 
-type Remote = { version: number; pages: PageRecord[] } | { version: 0; pages: null } | "unreadable";
+type Remote = { version: number; pages: PageRecord[] | null } | "unreadable";
 
 export async function syncNow(): Promise<SyncResult> {
   const settings = await loadSettings();
@@ -31,13 +31,13 @@ export async function syncNow(): Promise<SyncResult> {
       const remote = await fetchRemote(url, auth, keys.encKey);
       if (remote === "unreadable") return failure("the remote data does not match this keyphrase");
 
-      let pages = await loadAllPages();
-      if (remote.pages !== null && remote.pages.length > 0) {
-        pages = mergePages(pages, remote.pages);
-        await writePages(pages);
-      }
+      if (remote.pages !== null && remote.pages.length > 0) await foldRemotePages(remote.pages);
 
-      const envelope = await encryptPayload(keys.encKey, { v: 1, exportedAt: nowIso(), pages });
+      // Read the local set only after folding, so the upload carries the merge result.
+      const pages    = await loadAllPages();
+      const envelope = await sealUnderLimit(keys.encKey, pages);
+      if (envelope === null) return failure("your reading history exceeds the sync size limit");
+
       const response = await fetch(url, {
         method:  "PUT",
         headers: { ...auth, "content-type": "application/json" },
@@ -55,6 +55,23 @@ export async function syncNow(): Promise<SyncResult> {
     return failure("another device kept winning the race; will retry later");
   } catch (err) {
     return failure(err instanceof Error ? err.message : "network failure");
+  }
+}
+
+/**
+ * Encrypt the payload, trimming the OLDEST-visited pages out of the upload until the
+ * ciphertext fits the server's cap. Local storage keeps everything; only the synced
+ * copy shrinks. Null when even a single page will not fit.
+ */
+async function sealUnderLimit(encKey: CryptoKey, pages: PageRecord[]): Promise<{ iv: string; data: string } | null> {
+  let candidate = [...pages].sort((a, b) => b.lastVisitAt.localeCompare(a.lastVisitAt));
+
+  for (;;) {
+    const envelope = await encryptPayload(encKey, { v: 1, exportedAt: nowIso(), pages: candidate });
+    if (envelope.data.length <= SYNC_DATA_MAX_CHARS) return envelope;
+    if (candidate.length <= 1) return null;
+
+    candidate = candidate.slice(0, Math.max(1, Math.floor(candidate.length * 0.9)));
   }
 }
 

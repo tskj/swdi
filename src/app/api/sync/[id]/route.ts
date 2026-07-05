@@ -5,7 +5,7 @@ import { syncPutRequestSchema } from "@swdi/shared";
 import { nowDate } from "@/lib/clock";
 import { db } from "@/lib/db";
 import { syncBlobs } from "@/lib/db/schema";
-import { withTransaction } from "@/lib/db-tx";
+import { pgErrorCode, withTransaction } from "@/lib/db-tx";
 import { withRequest } from "@/lib/log";
 
 export const runtime = "nodejs";
@@ -44,37 +44,50 @@ export async function PUT(req: Request, ctx: { params: Promise<{ id: string }> }
 
     // Read-then-write must be one snapshot: two devices registering or pushing
     // concurrently should resolve into one row and one clean 409, not two truths.
-    const outcome = await withTransaction({ name: "sync.put" }, async (tx) => {
-      const row = await tx.select().from(syncBlobs).where(eq(syncBlobs.syncId, id)).maybeSingle("sync.put");
-
-      if (row === null) {
-        if (expectedVersion !== 0) return { kind: "conflict" as const, version: 0 };
-
-        await tx.insert(syncBlobs).values({
-          syncId:   id,
-          authHash: hash,
-          version:  1,
-          iv,
-          data,
-          createdAt: nowDate(),
-          updatedAt: nowDate(),
-        });
-        return { kind: "stored" as const, version: 1 };
-      }
-
-      if (!hashesMatch(row.authHash, hash)) return { kind: "denied" as const };
-      if (row.version !== expectedVersion)  return { kind: "conflict" as const, version: row.version };
-
-      await tx.update(syncBlobs)
-        .set({ version: row.version + 1, iv, data, updatedAt: nowDate() })
-        .where(eq(syncBlobs.syncId, id));
-      return { kind: "stored" as const, version: row.version + 1 };
-    });
+    // Racing first registrations surface as a unique violation rather than a
+    // serialization failure, so that case is caught below and mapped to the same
+    // 409 the version check produces; the client's pull-merge-retry then resolves it.
+    let outcome: { kind: "stored"; version: number } | { kind: "denied" } | { kind: "conflict"; version: number };
+    try {
+      outcome = await runPut(id, hash, expectedVersion, iv, data);
+    } catch (err) {
+      if (pgErrorCode(err) !== "23505") throw err;
+      outcome = { kind: "conflict", version: 0 };
+    }
 
     if (outcome.kind === "denied")   return notFound();
     if (outcome.kind === "conflict") return NextResponse.json({ error: "version conflict", version: outcome.version }, { status: 409 });
 
     return NextResponse.json({ version: outcome.version });
+  });
+}
+
+async function runPut(id: string, hash: string, expectedVersion: number, iv: string, data: string) {
+  return withTransaction({ name: "sync.put" }, async (tx) => {
+    const row = await tx.select().from(syncBlobs).where(eq(syncBlobs.syncId, id)).maybeSingle("sync.put");
+
+    if (row === null) {
+      if (expectedVersion !== 0) return { kind: "conflict" as const, version: 0 };
+
+      await tx.insert(syncBlobs).values({
+        syncId:   id,
+        authHash: hash,
+        version:  1,
+        iv,
+        data,
+        createdAt: nowDate(),
+        updatedAt: nowDate(),
+      });
+      return { kind: "stored" as const, version: 1 };
+    }
+
+    if (!hashesMatch(row.authHash, hash)) return { kind: "denied" as const };
+    if (row.version !== expectedVersion)  return { kind: "conflict" as const, version: row.version };
+
+    await tx.update(syncBlobs)
+      .set({ version: row.version + 1, iv, data, updatedAt: nowDate() })
+      .where(eq(syncBlobs.syncId, id));
+    return { kind: "stored" as const, version: row.version + 1 };
   });
 }
 
