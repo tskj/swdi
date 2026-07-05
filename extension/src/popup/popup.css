@@ -38,6 +38,62 @@ header {
   cursor: pointer;
 }
 
+hr {
+  margin: 14px 0;
+  border: 0;
+  border-top: 1px solid light-dark(#e4e7ea, #3a444e);
+}
+
+.section-title {
+  margin: 0 0 6px;
+  font-weight: 600;
+}
+
+.hint {
+  margin: 6px 0;
+  font-size: 12px;
+  opacity: 0.75;
+}
+
+.keyrow,
+.pair {
+  display: flex;
+  gap: 6px;
+  margin: 8px 0;
+}
+
+input[type="text"] {
+  flex: 1;
+  min-width: 0;
+  padding: 6px 8px;
+  border: 1px solid light-dark(#c9ced3, #4a555f);
+  border-radius: 6px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-size: 12px;
+}
+
+button.quiet {
+  width: auto;
+  padding: 6px 10px;
+  opacity: 0.85;
+}
+
+.pair button { width: auto; flex: 1; }
+
+#sync-connect { margin-top: 8px; display: flex; gap: 6px; }
+#sync-connect button { width: auto; }
+
+#dashboard-link {
+  display: inline-block;
+  margin-top: 4px;
+  color: inherit;
+  font-size: 12px;
+}
+
+#sync-off button { margin-top: 6px; }
+
 button {
   width: 100%;
   padding: 7px 0;

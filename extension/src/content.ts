@@ -12,9 +12,9 @@ import {
   targetReadLevel,
   normalizePageUrl,
 } from "@swdi/shared";
-import { Paragraph, collectParagraphs, findArticleContainer } from "./lib/dom";
-import { getStateMessageSchema, setOverlayMessageSchema } from "./lib/messages";
-import { loadPageRecord, loadSettings, loadSummaries, savePage, saveSettings } from "./lib/storage";
+import { Paragraph, collectParagraphs, findArticleContainer, isReadableArticle } from "./lib/dom";
+import { getStateMessageSchema, setOverlayMessageSchema, setSitePausedMessageSchema } from "./lib/messages";
+import { loadPageRecord, loadSettings, loadSummaries, savePage, saveSettings, savePausedHosts } from "./lib/storage";
 
 // A paragraph counts as visible for dwell purposes at half its area, or half a viewport
 // for blocks taller than the screen. The extra thresholds make the observer re-fire while
@@ -33,21 +33,72 @@ type Tracked = {
   read:         boolean;
 };
 
+type TrackingState = {
+  title:   string;
+  total:   number;
+  read:    number;
+  changed: number;
+  overlay: boolean;
+  badges:  { read: number; partial: number };
+};
+
+// The extension runs on every page, so the popup must always get an answer: either the
+// page is tracked, or it was silently ignored (no readable article), or its site is on
+// the user's paused list. The listener exists from the first tick; the phase evolves.
+type Phase =
+  | { phase: "starting" }
+  | { phase: "paused";     host: string }
+  | { phase: "unsuitable"; host: string }
+  | { phase: "tracking";   host: string; getState: () => TrackingState; setOverlay: (value: boolean) => void };
+
+let current: Phase = { phase: "starting" };
+
+chrome.runtime.onMessage.addListener((message: unknown, _sender, sendResponse) => {
+  if (getStateMessageSchema.safeParse(message).success) {
+    if (current.phase === "tracking") sendResponse({ phase: "tracking", host: current.host, ...current.getState() });
+    else                              sendResponse({ phase: current.phase === "paused" ? "paused" : "unsuitable", host: location.hostname });
+    return;
+  }
+
+  const setOverlay = setOverlayMessageSchema.safeParse(message);
+  if (setOverlay.success) {
+    if (current.phase === "tracking") current.setOverlay(setOverlay.data.value);
+    sendResponse({ ok: true });
+    return;
+  }
+
+  const setPaused = setSitePausedMessageSchema.safeParse(message);
+  if (setPaused.success) {
+    void savePausedHosts(location.hostname, setPaused.data.value).then(() => sendResponse({ ok: true }));
+    return true; // async response
+  }
+});
+
 main().catch((err) => console.warn("swdi: reader failed to start", err));
 
 async function main() {
+  const host     = location.hostname;
+  const settings = await loadSettings();
+
+  if (isPausedHost(settings.blockedHosts, host)) {
+    current = { phase: "paused", host };
+    return;
+  }
+
   const pageUrl = normalizePageUrl(location.href);
   if (pageUrl === null) return;
 
   const container = findArticleContainer(document);
   if (container === null) return;
 
-  const paragraphs = await collectParagraphs(container);
-  if (paragraphs.length === 0) return;
+  const paragraphs = await collectParagraphs(container.el);
+  if (!isReadableArticle(paragraphs, container.fallback)) {
+    current = { phase: "unsuitable", host };
+    return;
+  }
 
-  const settings = await loadSettings();
-  const stored   = await loadPageRecord(pageUrl);
-  const record   = stored ?? freshRecord(pageUrl);
+  const stored = await loadPageRecord(pageUrl);
+  const record = stored ?? freshRecord(pageUrl);
 
   // Newness is judged against the record as loaded, before this visit merges its sightings.
   const changed = newSinceLastRead(record, paragraphs.map((p) => p.hash));
@@ -79,12 +130,13 @@ async function main() {
 
     // Another tab of this page may have flushed since we loaded; fold its reads in
     // rather than overwriting them (see mergeRecords).
-    const stored = await loadPageRecord(record.url);
-    if (stored !== null) mergeRecords(record, stored);
+    const concurrent = await loadPageRecord(record.url);
+    if (concurrent !== null) mergeRecords(record, concurrent);
 
     await savePage(record, summarize(record));
     refreshLocalBadges();
     sendBadge();
+    chrome.runtime.sendMessage({ type: "swdi:page-flushed" }).catch(() => {});
   }
 
   window.addEventListener("pagehide", () => void flush());
@@ -161,10 +213,10 @@ async function main() {
   paragraphs.forEach((p, i) => indexOfHash.set(p.hash, indexOfHash.get(p.hash) ?? i));
 
   function advanceFurthest(hash: string) {
-    const current  = record.furthestReadHash === null ? -1 : indexOfHash.get(record.furthestReadHash) ?? -1;
-    const incoming = indexOfHash.get(hash) ?? -1;
+    const currentIdx  = record.furthestReadHash === null ? -1 : indexOfHash.get(record.furthestReadHash) ?? -1;
+    const incomingIdx = indexOfHash.get(hash) ?? -1;
 
-    if (incoming > current) record.furthestReadHash = hash;
+    if (incomingIdx > currentIdx) record.furthestReadHash = hash;
   }
 
   offerResume(paragraphs, record.furthestReadHash);
@@ -208,31 +260,35 @@ async function main() {
     document.documentElement.classList.toggle("swdi-overlay-off", !enabled);
   }
 
-  chrome.runtime.onMessage.addListener((message: unknown, _sender, sendResponse) => {
-    if (getStateMessageSchema.safeParse(message).success) {
+  current = {
+    phase: "tracking",
+    host,
+
+    getState: () => {
       const summary = summarize(record);
-      sendResponse({
+      return {
         title:   record.title,
         total:   summary.total,
         read:    summary.read,
         changed: changed.size,
         overlay: settings.overlay,
         badges:  badgeCounts(),
-      });
-      return;
-    }
+      };
+    },
 
-    const setOverlay = setOverlayMessageSchema.safeParse(message);
-    if (setOverlay.success) {
-      settings.overlay = setOverlay.data.value;
-      applyOverlayEnabled(settings.overlay);
+    setOverlay: (value: boolean) => {
+      settings.overlay = value;
+      applyOverlayEnabled(value);
       void saveSettings(settings);
-      sendResponse({ ok: true });
-    }
-  });
+    },
+  };
 
   // The visit itself (outline, sightings, title) is worth persisting even if nothing gets read.
   await flush();
+}
+
+function isPausedHost(blockedHosts: string[], host: string): boolean {
+  return blockedHosts.some((blocked) => host === blocked || host.endsWith(`.${blocked}`));
 }
 
 function freshRecord(url: string): PageRecord {
@@ -287,6 +343,16 @@ function applyBadge(a: HTMLAnchorElement, level: ReadLevel) {
   dot.title         = level === "read" ? "You have read this" : "You have partly read this";
 }
 
+function badgeCounts(): { read: number; partial: number } {
+  const counts = { read: 0, partial: 0 };
+  for (const level of badgeLevels.values()) {
+    if      (level === "read")    counts.read    += 1;
+    else if (level === "partial") counts.partial += 1;
+  }
+
+  return counts;
+}
+
 // We can't darkreader-lock a page we don't own, and when Dark Reader restyles one of
 // the tracked sites our low-alpha markers wash out against the darkened background.
 // Dark Reader stamps data-darkreader-* attributes on <html>; mirror them into a class
@@ -308,16 +374,6 @@ function watchDarkReader() {
 
 function darkReaderActive(): boolean {
   return document.documentElement.classList.contains("swdi-darkreader");
-}
-
-function badgeCounts(): { read: number; partial: number } {
-  const counts = { read: 0, partial: 0 };
-  for (const level of badgeLevels.values()) {
-    if      (level === "read")    counts.read    += 1;
-    else if (level === "partial") counts.partial += 1;
-  }
-
-  return counts;
 }
 
 function offerResume(paragraphs: Paragraph[], furthestHash: string | null) {

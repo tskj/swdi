@@ -4,5 +4,6 @@ export * from "./hash";
 export * from "./read-model";
 export * from "./registry";
 export * from "./schema";
+export * from "./sync";
 export * from "./text";
 export * from "./url";

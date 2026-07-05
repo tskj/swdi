@@ -15,10 +15,31 @@ const HEADING_SELECTOR = "h1[id], h2[id], h3[id], h4[id]";
 // Chrome (nav/TOC/comments) is excluded from tracking even when it sits inside the article.
 const EXCLUDED_ANCESTOR = "nav, header, footer, aside, [class*='book-contents'], [class*='comment'], #comments";
 
-export function findArticleContainer(doc: Document): HTMLElement | null {
-  return doc.querySelector<HTMLElement>("article")
-      ?? doc.querySelector<HTMLElement>("main")
-      ?? doc.querySelector<HTMLElement>("#content");
+export type ArticleContainer = { el: HTMLElement; fallback: boolean };
+
+export function findArticleContainer(doc: Document): ArticleContainer | null {
+  const semantic = doc.querySelector<HTMLElement>("article")
+                ?? doc.querySelector<HTMLElement>("main")
+                ?? doc.querySelector<HTMLElement>("#content");
+  if (semantic !== null) return { el: semantic, fallback: false };
+
+  return doc.body === null ? null : { el: doc.body, fallback: true };
+}
+
+// The extension runs everywhere, so this gate decides what counts as readable content.
+// Pages that fail it are silently ignored: apps, dashboards, search results, stores.
+// A semantic container earns lower thresholds; a whole-body fallback must look
+// unmistakably like an article before we track anything.
+const MIN_PARAGRAPHS          = 5;
+const MIN_WORDS               = 150;
+const MIN_PARAGRAPHS_FALLBACK = 8;
+const MIN_WORDS_FALLBACK      = 300;
+
+export function isReadableArticle(paragraphs: Paragraph[], usedFallback: boolean): boolean {
+  const words = paragraphs.reduce((sum, p) => sum + p.words, 0);
+
+  if (usedFallback) return paragraphs.length >= MIN_PARAGRAPHS_FALLBACK && words >= MIN_WORDS_FALLBACK;
+  return paragraphs.length >= MIN_PARAGRAPHS && words >= MIN_WORDS;
 }
 
 /** Trackable paragraphs in document order, each tagged with the enclosing heading-anchor section. */

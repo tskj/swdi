@@ -18,16 +18,42 @@ export const setOverlayMessageSchema = z.object({
   value: z.boolean(),
 });
 
-export const popupStateSchema = z.object({
-  title:   z.string(),
-  total:   z.number(),
-  read:    z.number(),
-  changed: z.number(),
-  overlay: z.boolean(),
-  badges:  z.object({ read: z.number(), partial: z.number() }),
+export const setSitePausedMessageSchema = z.object({
+  type:  z.literal("swdi:set-site-paused"),
+  value: z.boolean(),
 });
 
-export type BadgeMessage      = z.infer<typeof badgeMessageSchema>;
-export type GetStateMessage   = z.infer<typeof getStateMessageSchema>;
-export type SetOverlayMessage = z.infer<typeof setOverlayMessageSchema>;
-export type PopupState        = z.infer<typeof popupStateSchema>;
+export const pageFlushedMessageSchema = z.object({
+  type: z.literal("swdi:page-flushed"),
+});
+
+export const syncNowMessageSchema = z.object({
+  type: z.literal("swdi:sync-now"),
+});
+
+export const syncResultSchema = z.union([
+  z.object({ ok: z.literal(true), at: z.string() }),
+  z.object({ ok: z.literal(false), error: z.string() }),
+]);
+
+// What the content script tells the popup about the current page. A page is either
+// tracked, silently ignored for lacking readable text, or on the user's paused list.
+export const popupStateSchema = z.discriminatedUnion("phase", [
+  z.object({
+    phase: z.literal("tracking"),
+    host:  z.string(),
+
+    title:   z.string(),
+    total:   z.number(),
+    read:    z.number(),
+    changed: z.number(),
+    overlay: z.boolean(),
+    badges:  z.object({ read: z.number(), partial: z.number() }),
+  }),
+  z.object({ phase: z.literal("unsuitable"), host: z.string() }),
+  z.object({ phase: z.literal("paused"),     host: z.string() }),
+]);
+
+export type BadgeMessage = z.infer<typeof badgeMessageSchema>;
+export type PopupState   = z.infer<typeof popupStateSchema>;
+export type SyncResult   = z.infer<typeof syncResultSchema>;

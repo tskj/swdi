@@ -8,11 +8,11 @@ export default function Home() {
       <p className="text-[13px] font-sans tracking-[0.25em] uppercase text-(--ink-soft)">
         SWDI
       </p>
-      <h1 className="sr-only">SWDI, the Sustainable Web &amp; Internet Donations Initiative</h1>
+      <h1 className="sr-only">SWDI, the Sustainable Web Donations Initiative</h1>
 
       <div className="mt-10 grid gap-12 md:grid-cols-2 md:gap-0">
         <section className="md:pr-9">
-          <h2 className="font-display text-[32px] leading-[1.12] font-medium">
+          <h2 className="font-display text-[32px] leading-[1.12] font-medium text-(--amber)">
             Remember what you read.
           </h2>
           <p className="newsprint dropcap mt-5">
@@ -37,6 +37,17 @@ export default function Home() {
           </p>
         </section>
       </div>
+
+      <p className="mt-12 text-[18px]">
+        The Sustainable Web Donations Initiative is a grassroots movement to keep the old
+        web alive: the personal sites, hypertext books and long essays people still write
+        because they have something to say. The extension gives you a real memory of your
+        reading, something browsers never quite managed. The donation flow turns that same
+        memory into support for the people behind it, from one monthly amount you decide
+        and confirm. Plenty of people will use the memory alone and never send a cent, and
+        that is a fine way to use SWDI. Everything is open source, and your reading stays
+        in your hands.
+      </p>
 
       <Demo />
 
@@ -103,8 +114,11 @@ export default function Home() {
         </ul>
       </section>
 
-      <footer className="mt-16 border-t border-(--line) pt-6 font-sans text-[14px] text-(--ink-soft)">
-        <p>SWDI, the Sustainable Web &amp; Internet Donations Initiative.</p>
+      <footer className="mt-16 flex flex-wrap gap-x-6 gap-y-2 border-t border-(--line) pt-6 font-sans text-[14px] text-(--ink-soft)">
+        <p>SWDI, the Sustainable Web Donations Initiative.</p>
+        <a className="underline underline-offset-4 hover:text-(--ink)" href="/dashboard">
+          Your dashboard
+        </a>
         <a className="underline underline-offset-4 hover:text-(--ink)" href={GITHUB_URL}>
           Source, issues and discussion on GitHub
         </a>

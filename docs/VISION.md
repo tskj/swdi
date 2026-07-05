@@ -1,6 +1,6 @@
 # Vision
 
-SWDI (the Sustainable Web & Internet Donations Initiative, "Sweedy" among friends) exists because two problems turn out to share a solution.
+SWDI (the Sustainable Web Donations Initiative, "Sweedy" among friends) exists because two problems turn out to share a solution.
 
 Readers of serious long-form hypertext lose track of their own reading. Chapters, pages, sections and links blur together over the weeks a book stays open in rotating tabs. At the same time, the people writing that material are hard to support: every author has a different donate link, every payment is a separate decision, and almost nobody follows through.
 
@@ -29,7 +29,7 @@ SWDI is never a financial intermediary. It holds no funds, processes no payments
 
 **Dashboard** (next): the web app where you review reading insights, set the budget and confirm monthly distributions. Server-rendered shell, but it operates on client-side data.
 
-**Sync backend** (next): optional multi-device sync of reading state. End-to-end encrypted with keys that only exist on your devices; the server stores opaque blobs and the encryption is verifiable in this repository. The sync backend is deliberately not a swap-in setting. E2EE means swapping it buys no additional privacy, and running it is what costs the project money. If you want a different operator anyway, fork and self-host; that path stays documented and supported. Your data is always exportable in cleartext from your own devices. Convenience may be a reason to stay; captivity will never be.
+**Sync backend** (exists): optional multi-device sync of reading state. End-to-end encrypted with keys that only exist on your devices; the server stores opaque blobs and the encryption is verifiable in this repository. There is no account: a random keyphrase generated on the first device is the whole identity, and everything else (the blob's name, the write token, the encryption key) derives from it. The server stores only the write token's hash beside the ciphertext, so it can withhold service but can never read, and nothing ties a blob to a person. Losing the keyphrase loses the synced copy; local data and JSON export remain, and that trade is stated plainly rather than papered over with a recovery backdoor. The sync backend is deliberately not a swap-in setting. E2EE means swapping it buys no additional privacy, and running it is what costs the project money. If you want a different operator anyway, fork and self-host; that path stays documented and supported. Your data is always exportable in cleartext from your own devices. Convenience may be a reason to stay; captivity will never be.
 
 **The registry** (seeded): a public mapping from content to existing payment links, community-maintained, containing no personal data. It starts as versioned JSON in this repo, served at /api/registry. The registry is the opposite of the sync backend in the trust model: it is a commons, so the dashboard treats it as a URL you can point anywhere. The default is the one this project hosts, and community or curated registries are welcome.
 
@@ -37,9 +37,15 @@ SWDI is never a financial intermediary. It holds no funds, processes no payments
 
 The project needs servers, a database and tooling. It funds itself by being an ordinary entry in its own registry: if SWDI is useful to you, it shows up in your monthly proposal like any other author, and you can zero it out. No fees, no premium tier, no ads.
 
+How the ask works is a design commitment, written down so it survives future pressure:
+
+- SWDI asks exactly once, as a symmetric question with yes and no equally prominent: include SWDI in your split, suggested at 1%? The answer is remembered forever and adjustable in settings.
+- Never pre-selected, never re-added after a no or a zero. "Holds no funds, takes no cut" stays literally true; the share is a line in your own split like any other, executed by you.
+- The ask lives inside the flow where you are already reviewing your giving, never as a popup over your reading. Being quietly starved is a failure mode, but so is nagging; one honest question is the whole budget for asking.
+
 ## Roadmap
 
-- v0.1: reader extension, local only, a handful of hypertext book sites. Public site deployed.
-- v0.2: E2EE sync and the dashboard's reading views. Account via SSO, no passwords.
-- v0.3: registry, monthly proposals, payment guidance.
-- Later: more input sources, more browsers, broader site support, registry federation.
+- v0.1 (done): reader extension, local only. Public site deployed, registry seeded as versioned data.
+- v0.2 (done): the extension runs on every page behind a readability gate, E2EE keyphrase sync, and the dashboard's reading views with the registry join.
+- v0.3: monthly budget, proposals, payment guidance.
+- Later: more input sources, more browsers, registry federation and verification tooling.

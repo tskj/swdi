@@ -73,6 +73,36 @@ test("first visit collects the outline and dwell turns paragraphs read", async (
   await page.close();
 });
 
+test("silently ignores pages without enough readable text", async () => {
+  await context.route("https://tiny-app.example/**", (route) => {
+    void route.fulfill({
+      status:      200,
+      contentType: "text/html; charset=utf-8",
+      body: `<html><body><main>
+        <p>A settings page with one short paragraph of text, nothing article shaped.</p>
+        <button>Save</button><input placeholder="name">
+      </main></body></html>`,
+    });
+  });
+
+  const page = await context.newPage();
+  await page.goto("https://tiny-app.example/");
+  await page.waitForTimeout(1_500);
+
+  const state = await worker.evaluate(async () => {
+    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+    return chrome.tabs.sendMessage(tab.id, { type: "swdi:get-state" });
+  });
+  expect(state?.phase).toBe("unsuitable");
+
+  const keys = await worker.evaluate(async () =>
+    Object.keys(await chrome.storage.local.get(null)).filter((k) => k.includes("tiny-app.example")),
+  );
+  expect(keys).toEqual([]);
+
+  await page.close();
+});
+
 test("read state seeds overlay markers, link badges and the resume pill", async () => {
   // Simulate an earlier reading session: first 60% of paragraphs read, and a
   // page this chapter links to marked fully read.

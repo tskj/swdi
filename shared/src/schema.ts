@@ -42,11 +42,25 @@ export const pageSummarySchema = z.object({
   sections:   z.record(z.string(), sectionStatsSchema),
 });
 
+export const SYNC_DEFAULT_BASE_URL = "https://web-production-23890.up.railway.app";
+
+// New fields carry defaults so settings stored by older extension versions upgrade
+// in place instead of being reset.
 export const settingsSchema = z.object({
   overlay: z.boolean(),
+
+  syncSecret:   z.string().nullable().default(null),
+  syncBaseUrl:  z.string().default(SYNC_DEFAULT_BASE_URL),
+  blockedHosts: z.array(z.string()).default([]),
 });
 
-export const DEFAULT_SETTINGS: Settings = { overlay: true };
+export const DEFAULT_SETTINGS: Settings = {
+  overlay: true,
+
+  syncSecret:   null,
+  syncBaseUrl:  SYNC_DEFAULT_BASE_URL,
+  blockedHosts: [],
+};
 
 export type OutlineEntry = z.infer<typeof outlineEntrySchema>;
 export type PageRecord   = z.infer<typeof pageRecordSchema>;

@@ -1,6 +1,6 @@
 # SWDI
 
-SWDI is the Sustainable Web & Internet Donations Initiative, Sweedy among friends. It is an open source project about reading on the web: remembering what you have actually read, and eventually paying the people who wrote it.
+SWDI is the Sustainable Web Donations Initiative, Sweedy among friends. It is an open source project about reading on the web: remembering what you have actually read, and eventually paying the people who wrote it.
 
 It grew out of two itches. The first is that long, link-heavy sites are easy to get lost in. Hypertext books like David Chapman's meaningness.com stay open in tabs for weeks, pages jump around through liberal linking, and you forget which chapters you finished, how far down a page you got, and whether you already read the thing a link points to. The second itch is that supporting the writers you keep coming back to is still inconvenient enough that most goodwill never turns into anything. SWDI approaches both with the same primitive: a private, precise record of what you have read.
 
@@ -15,7 +15,9 @@ The browser extension in `extension/` keeps a paragraph-level reading memory, st
 - Every paragraph is identified by a hash of its text, so your reading record survives cosmetic edits to the page. When content does change after you read it, the changed or added paragraphs are marked.
 - The toolbar badge shows your progress through the current page, and the popup can export everything you have stored as JSON.
 
-It currently runs on an allowlist of sites: David Chapman's hypertext books (meaningness.com, metarationality.com, vividness.live, buddhism-for-vampires.com) as the reference targets, plus a handful of essay blogs. The list lives in `extension/manifest.json`.
+It runs on every page and decides for itself what counts as readable content: pages without enough article-shaped text (apps, dashboards, stores) are silently ignored, and any site can be paused from the popup. David Chapman's hypertext books (meaningness.com and siblings) are the reference targets for the heuristics.
+
+Reading can sync between your devices, end to end encrypted. Turning sync on generates a keyphrase; the keyphrase is the whole identity (there is no account), the encryption key derives from it and never leaves your devices, and the server stores ciphertext it cannot read. The dashboard at `/dashboard` decrypts in your browser and shows your reading, including which of the authors behind it are in the registry and how to support them.
 
 ### Trying it
 
@@ -41,7 +43,7 @@ Two architectural commitments follow from taking reading data seriously as intim
 
 | Path | What it is |
 | --- | --- |
-| `/` | Next.js app: the public site now, the dashboard and sync API later |
+| `/` | Next.js app: the public site, the dashboard and the sync + registry APIs |
 | `shared/` | The data model as zod schemas, plus the small helpers both sides use |
 | `extension/` | The MV3 reader extension, built with esbuild |
 | `docs/` | Vision, house style, decisions |
