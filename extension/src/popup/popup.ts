@@ -164,7 +164,7 @@ function wireSyncHandlers() {
 
     if ((await deriveSyncKeys(secret)) === null) {
       input.value       = "";
-      input.placeholder = "That does not look like a keyphrase";
+      input.placeholder = "That does not look like a sync key";
       return;
     }
 

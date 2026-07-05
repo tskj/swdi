@@ -72,7 +72,7 @@ export async function savePausedHosts(host: string, paused: boolean): Promise<vo
 
 /**
  * The full local dataset, for user-initiated export. Data captivity is never the
- * lock-in. The sync keyphrase is redacted: anyone holding the export file could
+ * lock-in. The sync key is redacted: anyone holding the export file could
  * otherwise derive the keys and read or overwrite the synced copy.
  */
 export async function exportAll(): Promise<Record<string, unknown>> {

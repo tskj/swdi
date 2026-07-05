@@ -11,7 +11,7 @@ import { SyncResult } from "./messages";
 import { foldRemotePages, loadAllPages, loadSettings, loadSyncMeta, saveSyncMeta } from "./storage";
 
 // Pull, merge, push. The server never sees plaintext: everything here derives from the
-// keyphrase on this device, and only ciphertext plus the bearer token cross the wire.
+// sync key on this device, and only ciphertext plus the bearer token cross the wire.
 // A 409 means another device pushed since our pull; one pull-merge-retry resolves it.
 
 type Remote = { version: number; pages: PageRecord[] | null } | "unreadable";
@@ -21,7 +21,7 @@ export async function syncNow(): Promise<SyncResult> {
   if (settings.syncSecret === null) return failure("sync is not enabled");
 
   const keys = await deriveSyncKeys(settings.syncSecret);
-  if (keys === null) return failure("the stored keyphrase is invalid");
+  if (keys === null) return failure("the stored sync key is invalid");
 
   const url  = `${settings.syncBaseUrl.replace(/\/+$/, "")}/api/sync/${keys.syncId}`;
   const auth = { authorization: `Bearer ${keys.authToken}` };
@@ -29,7 +29,7 @@ export async function syncNow(): Promise<SyncResult> {
   try {
     for (let attempt = 1; attempt <= 2; attempt++) {
       const remote = await fetchRemote(url, auth, keys.encKey);
-      if (remote === "unreadable") return failure("the remote data does not match this keyphrase");
+      if (remote === "unreadable") return failure("the remote data does not match this sync key");
 
       if (remote.pages !== null && remote.pages.length > 0) await foldRemotePages(remote.pages);
 

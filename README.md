@@ -17,7 +17,7 @@ The browser extension in `extension/` keeps a paragraph-level reading memory, st
 
 It runs on every page and decides for itself what counts as readable content: pages without enough article-shaped text (apps, dashboards, stores) are silently ignored, and any site can be paused from the popup. David Chapman's hypertext books (meaningness.com and siblings) are the reference targets for the heuristics.
 
-Reading can sync between your devices, end to end encrypted. Turning sync on generates a keyphrase; the keyphrase is the whole identity (there is no account), the encryption key derives from it and never leaves your devices, and the server stores ciphertext it cannot read. The dashboard at `/dashboard` decrypts in your browser and shows your reading, including which of the authors behind it are in the registry and how to support them.
+Reading can sync between your devices, end to end encrypted. Turning sync on generates a sync key; the key is the whole identity (there is no account), the encryption key derives from it and never leaves your devices, and the server stores ciphertext it cannot read. The dashboard at `/dashboard` decrypts in your browser and shows your reading, including which of the authors behind it are in the registry and how to support them.
 
 ### Trying it
 
@@ -26,7 +26,7 @@ pnpm install
 pnpm ext:build
 ```
 
-Then open `chrome://extensions`, enable Developer mode, choose "Load unpacked" and select `extension/dist`. Visit one of the tracked sites and read something.
+Then open `chrome://extensions`, enable Developer mode, choose "Load unpacked" and select `extension/dist`. Read something, anywhere.
 
 ## Where it is going
 
@@ -36,7 +36,7 @@ The registry has already started, as plain versioned data: `registry/registry.js
 
 Two architectural commitments follow from taking reading data seriously as intimate data:
 
-- Reading history stays local. When multi-device sync lands, the server stores only blobs encrypted with keys that never leave your devices, and that claim is verifiable in this repository.
+- Reading history stays local. Multi-device sync stores only blobs encrypted with keys that never leave your devices, and that claim is verifiable in this repository.
 - Your data is always exportable, and self-hosting the whole stack is a supported path. Convenience may be a reason to stay; captivity will never be.
 
 ## Repository layout

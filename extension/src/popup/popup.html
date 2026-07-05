@@ -32,17 +32,17 @@
     <p class="section-title">Sync</p>
 
     <div id="sync-off" hidden>
-      <p class="hint">Your reading stays on this device until you turn sync on. Synced data is end to end encrypted; the keyphrase never leaves your devices.</p>
+      <p class="hint">Your reading stays on this device until you turn sync on. Synced data is end to end encrypted; the sync key never leaves your devices.</p>
       <button id="sync-enable">Turn on sync</button>
-      <button id="sync-have" class="quiet">I already have a keyphrase</button>
+      <button id="sync-have" class="quiet">I already have a key</button>
       <div id="sync-connect" hidden>
-        <input id="sync-input" type="text" placeholder="Paste your keyphrase" spellcheck="false" autocomplete="off">
+        <input id="sync-input" type="text" placeholder="Paste your sync key" spellcheck="false" autocomplete="off">
         <button id="sync-connect-btn">Connect</button>
       </div>
     </div>
 
     <div id="sync-on" hidden>
-      <p class="hint">This keyphrase opens your reading on other devices and the dashboard. Keep it private.</p>
+      <p class="hint">This key opens your reading on other devices and the dashboard. Keep it private, ideally in a password manager; the dashboard's connect form can save it there for you.</p>
       <div class="keyrow">
         <input id="sync-secret" type="text" readonly spellcheck="false">
         <button id="sync-copy" class="quiet">Copy</button>

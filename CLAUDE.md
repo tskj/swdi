@@ -13,10 +13,10 @@ These shape the data model and the trust story. Don't break them without explici
 
 - **Local first.** Reading history is intimate data. It lives in the extension's local storage;
   sync stores only E2EE blobs server-side, keys never leave the user's devices.
-- **Sync is accountless.** The keyphrase is the whole identity: sync id, write token and AES key
+- **Sync is accountless.** The sync key is the whole identity: sync id, write token and AES key
   all derive from it (`shared/src/sync.ts`). The server keeps ciphertext plus the write token's
   hash, nothing else; wrong token and unknown id are indistinguishable (both 404). No recovery
-  backdoor: losing the keyphrase loses the synced copy, local data and export remain.
+  backdoor: losing the key loses the synced copy, local data and export remain.
 - **The shared schemas are the contract.** `shared/src/schema.ts` (zod) defines read-state for
   extension, dashboard and sync payloads alike; TS types are inferred, never hand-declared.
 - **Paragraph identity is a content hash** of normalized rendered text (`shared/src/hash.ts`),

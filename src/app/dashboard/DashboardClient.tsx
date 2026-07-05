@@ -28,7 +28,7 @@ import {
   pluralize,
 } from "./derive";
 
-// Everything on this page happens in the browser: the keyphrase derives the sync id,
+// Everything on this page happens in the browser: the sync key derives the sync id,
 // the write token and the decryption key locally, and the server only ever serves
 // ciphertext. There is no account and nothing here identifies a person.
 
@@ -72,7 +72,7 @@ export function DashboardClient() {
 
     const keys = await deriveSyncKeys(phrase);
     if (keys === null) {
-      setStage({ stage: "locked", error: "That does not look like a sync keyphrase." });
+      setStage({ stage: "locked", error: rejectionFor(phrase) });
       return;
     }
 
@@ -96,7 +96,7 @@ export function DashboardClient() {
       : null;
 
     if (payload === null) {
-      setStage({ stage: "locked", error: "This keyphrase does not open the stored data." });
+      setStage({ stage: "locked", error: "This key does not open the stored data. Check that it is the one from the same extension that synced." });
       return;
     }
 
@@ -124,7 +124,7 @@ export function DashboardClient() {
       <p className="font-sans text-[13px] tracking-[0.25em] uppercase text-(--ink-soft)">SWDI</p>
       <h1 className="font-display mt-3 text-[34px] leading-tight font-medium">Your reading</h1>
       <p className="mt-3 text-(--ink-soft)">
-        Decrypted in your browser with your keyphrase. The server only ever sees ciphertext.
+        Decrypted in your browser with your sync key. The server only ever sees ciphertext.
       </p>
 
       {stage.stage === "locked"  && <Connect error={stage.error} secret={secret} setSecret={setSecret} remember={remember} setRemember={setRemember} onConnect={() => void connect(secret, remember)} />}
@@ -161,30 +161,37 @@ function Connect(props: {
   return (
     <section className="mt-10 border border-(--line) bg-(--card) px-7 py-6" style={{ borderRadius: csR(12, 28), ...superellipse3 }}>
       <p>
-        Your keyphrase lives in the extension popup, under Sync. Paste it here and your
-        reading opens on this device too.
+        Your sync key is generated in the extension popup, under Sync. Paste it here and
+        your reading opens on this device too. Password managers can save it from this
+        form, so next time it fills itself in.
       </p>
 
-      <div className="mt-5 flex gap-2">
+      {/* A real login form, so Bitwarden, Proton Pass and friends offer to save the key
+          and autofill it on the next visit. The username names the entry in the vault. */}
+      <form
+        className="mt-5 flex gap-2"
+        onSubmit={(e) => { e.preventDefault(); props.onConnect(); }}
+      >
+        <input className="sr-only" type="text" name="username" autoComplete="username" value="sync key" readOnly tabIndex={-1} aria-hidden="true" />
         <input
           className="min-w-0 flex-1 border border-(--line) bg-transparent px-3 py-2 font-mono text-[13px]"
           style={{ borderRadius: csR(8, 16), ...squircle }}
-          type="text"
+          type="password"
+          name="password"
           value={props.secret}
           onChange={(e) => props.setSecret(e.target.value)}
-          onKeyDown={(e) => { if (e.key === "Enter") props.onConnect(); }}
-          placeholder="Paste your keyphrase"
+          placeholder="Paste your sync key"
           spellCheck={false}
-          autoComplete="off"
+          autoComplete="current-password"
         />
         <button
           className="border border-(--line) bg-(--ink) px-4 py-2 font-sans text-[14px] text-(--paper)"
           style={{ borderRadius: csR(8, 16), ...squircle }}
-          onClick={props.onConnect}
+          type="submit"
         >
           Open
         </button>
-      </div>
+      </form>
 
       <label className="mt-4 flex cursor-pointer items-center gap-2 font-sans text-[13px] text-(--ink-soft)">
         <input type="checkbox" checked={props.remember} onChange={(e) => props.setRemember(e.target.checked)} />
@@ -196,15 +203,30 @@ function Connect(props: {
   );
 }
 
+// Distinguish "you invented a passphrase" from "this got mangled": the first deserves
+// an explanation of why self-chosen phrases cannot work, since the key alone locates
+// and unlocks the data, so it must be unguessably random.
+function rejectionFor(phrase: string): string {
+  const trimmed = phrase.trim();
+
+  if (trimmed === "") return "Paste your sync key first.";
+
+  if (/\s/.test(trimmed) || trimmed.length < 24) {
+    return "That looks like a phrase you chose yourself, and those cannot work here. The sync key alone locates and unlocks your data, so it has to be truly random: SWDI generates it for you in the extension popup, under Sync. Copy it from there.";
+  }
+
+  return "That does not look like a sync key. Copy it from the extension popup, under Sync, and paste it unchanged.";
+}
+
 function Empty(props: { onBack: () => void }) {
   return (
     <section className="mt-10 border border-(--line) bg-(--card) px-7 py-6" style={{ borderRadius: csR(12, 28), ...superellipse3 }}>
       <p>
-        Nothing is stored under this keyphrase yet. Turn sync on in the extension popup,
+        Nothing is stored under this sync key yet. Turn sync on in the extension popup,
         read something, and come back.
       </p>
       <button className="mt-4 font-sans text-[13px] text-(--ink-soft) underline underline-offset-4" onClick={props.onBack}>
-        Try another keyphrase
+        Try another key
       </button>
     </section>
   );
