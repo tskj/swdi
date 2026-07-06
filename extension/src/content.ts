@@ -16,11 +16,15 @@ import { Paragraph, collectParagraphs, findArticleContainer, isReadableArticle }
 import {
   getStateMessageSchema,
   markPageReadMessageSchema,
+  readUpToHereMessageSchema,
   setBackfillMessageSchema,
+  scrollFurthestMessageSchema,
+  scrollNextGapMessageSchema,
   setOverlayMessageSchema,
+  setPagePausedMessageSchema,
   setSitePausedMessageSchema,
 } from "./lib/messages";
-import { loadPageRecord, loadSettings, loadSummaries, removePage, savePage, saveSettings, savePausedHosts } from "./lib/storage";
+import { loadPageRecord, loadSettings, loadSummaries, removePage, savePage, savePausedHosts, savePausedPages, updateSettings, watchSettings } from "./lib/storage";
 
 // A paragraph counts as visible for dwell purposes at half its area, or half a viewport
 // for blocks taller than the screen. The extra thresholds make the observer re-fire while
@@ -30,6 +34,10 @@ const IO_THRESHOLDS = [0, 0.1, 0.25, 0.5, 0.75, 1];
 
 const TICK_MS    = 1_000;
 const PERSIST_MS = 2_000;
+
+// How close to the very bottom of the page counts as "reached the end", where the last
+// paragraphs (which never scroll out of view) are allowed to commit.
+const BOTTOM_SLACK_PX = 4;
 
 type Tracked = {
   p:            Paragraph;
@@ -45,7 +53,9 @@ type TrackingState = {
   read:    number;
   changed: number;
   overlay: boolean;
-  badges:  { read: number; partial: number };
+  canResume:    boolean; // a furthest point exists to continue from
+  hasGapBehind: boolean; // an unread stretch sits before that furthest point
+  badges:  { read: number; reading: number };
 };
 
 // The extension runs on every page, so the popup must always get an answer: either the
@@ -55,14 +65,19 @@ type Phase =
   | { phase: "starting" }
   | { phase: "paused";     host: string }
   | { phase: "unsuitable"; host: string }
-  | { phase: "tracking";   host: string; getState: () => TrackingState; setOverlay: (value: boolean) => void };
+  | { phase: "tracking";   host: string; getState: () => TrackingState; setOverlay: (value: boolean) => void; markReadThisFar: (pageY: number) => Promise<void>; scrollFurthest: () => void; scrollNextGap: () => void };
 
 let current: Phase = { phase: "starting" };
 
+// Whether tracking is paused for this host or this exact page; the popup renders both as
+// checkboxes. Set once main() has read settings, so get-state can always report them.
+let pauseState = { host: false, page: false };
+
 chrome.runtime.onMessage.addListener((message: unknown, _sender, sendResponse) => {
   if (getStateMessageSchema.safeParse(message).success) {
-    if (current.phase === "tracking") sendResponse({ phase: "tracking", host: current.host, ...current.getState() });
-    else                              sendResponse({ phase: current.phase, host: location.hostname });
+    const pause = { hostPaused: pauseState.host, pagePaused: pauseState.page };
+    if (current.phase === "tracking") sendResponse({ phase: "tracking", host: current.host, ...pause, ...current.getState() });
+    else                              sendResponse({ phase: current.phase, host: location.hostname, ...pause });
     return;
   }
 
@@ -79,6 +94,15 @@ chrome.runtime.onMessage.addListener((message: unknown, _sender, sendResponse) =
     return true; // async response
   }
 
+  const setPagePaused = setPagePausedMessageSchema.safeParse(message);
+  if (setPagePaused.success) {
+    const url = normalizePageUrl(location.href);
+    if (url === null) { sendResponse({ ok: false }); return; }
+
+    void savePausedPages(url, setPagePaused.data.value).then(() => sendResponse({ ok: true }));
+    return true; // async response
+  }
+
   if (markPageReadMessageSchema.safeParse(message).success) {
     void markCurrentPageRead().then(() => sendResponse({ ok: true }));
     return true; // async response
@@ -88,21 +112,54 @@ chrome.runtime.onMessage.addListener((message: unknown, _sender, sendResponse) =
   if (backfill.success) {
     setBackfillMode(backfill.data.value);
     sendResponse({ ok: true });
+    return;
+  }
+
+  if (readUpToHereMessageSchema.safeParse(message).success) {
+    if (current.phase === "tracking") {
+      void current.markReadThisFar(lastContextMenuY).then(() => sendResponse({ ok: true }));
+      return true; // async response
+    }
+
+    sendResponse({ ok: false });
+    return;
+  }
+
+  if (scrollFurthestMessageSchema.safeParse(message).success) {
+    if (current.phase === "tracking") current.scrollFurthest();
+    sendResponse({ ok: current.phase === "tracking" });
+    return;
+  }
+
+  if (scrollNextGapMessageSchema.safeParse(message).success) {
+    if (current.phase === "tracking") current.scrollNextGap();
+    sendResponse({ ok: current.phase === "tracking" });
   }
 });
+
+// "I've read this far" arrives from the service worker's context-menu click, which
+// carries no coordinates; capture the last right-click position so the handler above
+// knows how far "here" is. Capture phase, so a page that swallows contextmenu can't hide it.
+let lastContextMenuY = 0;
+window.addEventListener("contextmenu", (event) => { lastContextMenuY = event.pageY; }, true);
 
 main().catch((err) => console.warn("swdi: reader failed to start", err));
 
 async function main() {
   const host     = location.hostname;
   const settings = await loadSettings();
+  const pageUrl  = normalizePageUrl(location.href);
 
-  if (isPausedHost(settings.blockedHosts, host)) {
+  pauseState = {
+    host: isPausedHost(settings.blockedHosts, host),
+    page: pageUrl !== null && settings.blockedPages.includes(pageUrl),
+  };
+
+  if (pauseState.host || pauseState.page) {
     current = { phase: "paused", host };
     return;
   }
 
-  const pageUrl = normalizePageUrl(location.href);
   if (pageUrl === null) return;
 
   const container = findArticleContainer(document);
@@ -125,7 +182,7 @@ async function main() {
   // the page becomes read as of the vouched time, so sections and change detection
   // work from here on.
   if (record.assumedReadAt !== null) {
-    for (const p of paragraphs) record.read[p.hash] ??= { at: record.assumedReadAt, dwellMs: 0 };
+    for (const p of paragraphs) record.read[p.hash] ??= { at: record.assumedReadAt, dwellMs: 0, words: p.words };
     record.lastReadAt ??= record.assumedReadAt;
   }
 
@@ -137,6 +194,14 @@ async function main() {
   record.lastVisitAt = visitIso;
   record.outline     = paragraphs.map(({ hash, words, sectionId }) => ({ h: hash, w: words, s: sectionId }));
   for (const p of paragraphs) record.seen[p.hash] ??= visitIso;
+
+  // Self-heal the word count on any already-read paragraph still present, even off-screen:
+  // a matching hash means the same text, so the same count. This corrects records written
+  // before words were tracked, gradually, whenever their pages are opened again.
+  for (const p of paragraphs) {
+    const r = record.read[p.hash];
+    if (r !== undefined) r.words = p.words;
+  }
 
   applyOverlayEnabled(settings.overlay);
   watchDarkReader();
@@ -163,7 +228,6 @@ async function main() {
     if (concurrent !== null) mergeRecords(record, concurrent);
 
     await savePage(record, summarize(record));
-    refreshLocalBadges();
     sendBadge();
     chrome.runtime.sendMessage({ type: "swdi:page-flushed" }).catch(() => {});
   }
@@ -181,7 +245,7 @@ async function main() {
 
     tracked.set(p.el, {
       p,
-      thresholdMs:  readThresholdMs(p.words),
+      thresholdMs:  readThresholdMs(p.words, settings.readingWpm),
       accruedMs:    0,
       intersecting: false,
       read:         p.hash in record.read,
@@ -192,7 +256,7 @@ async function main() {
     t.read = true;
     io.unobserve(t.p.el);
 
-    record.read[t.p.hash] = { at: nowIso(), dwellMs: Math.round(t.accruedMs) };
+    record.read[t.p.hash] = { at: nowIso(), dwellMs: Math.round(t.accruedMs), words: t.p.words };
     record.lastReadAt     = nowIso();
     advanceFurthest(t.p.hash);
 
@@ -207,8 +271,16 @@ async function main() {
       const t = tracked.get(entry.target);
       if (t === undefined || t.read) continue;
 
-      t.intersecting = entry.intersectionRatio >= VISIBLE_RATIO
-                    || entry.intersectionRect.height >= window.innerHeight * VISIBLE_RATIO;
+      const nowIntersecting = entry.intersectionRatio >= VISIBLE_RATIO
+                           || entry.intersectionRect.height >= window.innerHeight * VISIBLE_RATIO;
+
+      // A paragraph commits as read when it leaves view AFTER being watched long enough.
+      // A fast-scrolled skim never accrues the time, and a section parked on screen while
+      // the reader is away never commits until they actually move on. Leaving in scroll
+      // order also fills the markers top-to-bottom for free.
+      if (t.intersecting && !nowIntersecting && t.accruedMs >= t.thresholdMs) markRead(t);
+
+      t.intersecting = nowIntersecting;
     }
   }, { threshold: IO_THRESHOLDS });
 
@@ -218,7 +290,9 @@ async function main() {
 
   // Dwell accrues per tick with a clamped delta, never as an open wall-clock span:
   // an OS suspend or display sleep fires no visibility event, so an unbounded
-  // now - since would mark everything in view read the moment the laptop wakes.
+  // now - since would count everything in view the instant the laptop wakes. Accrual
+  // only earns eligibility; committing happens on scroll-out (above) or at the page
+  // bottom (below), never from sitting still in the middle of a page.
   let lastTickAt = nowMs();
 
   setInterval(() => {
@@ -229,12 +303,34 @@ async function main() {
     if (document.hidden) return;
 
     for (const t of tracked.values()) {
-      if (t.read || !t.intersecting) continue;
+      if (!t.read && t.intersecting && t.accruedMs < t.thresholdMs) t.accruedMs += delta;
+    }
 
-      t.accruedMs += delta;
-      if (t.accruedMs >= t.thresholdMs) markRead(t);
+    // The final paragraphs never scroll out, and a short page never scrolls at all;
+    // reaching the bottom is the terminal equivalent, so eligible paragraphs still in
+    // view now commit, in document order.
+    const atBottom = window.scrollY + window.innerHeight >= document.documentElement.scrollHeight - BOTTOM_SLACK_PX;
+    if (!atBottom) return;
+
+    for (const t of tracked.values()) {
+      if (!t.read && t.intersecting && t.accruedMs >= t.thresholdMs) markRead(t);
     }
   }, TICK_MS);
+
+  // Settings changed in the popup apply to the page you are on, not just the next load:
+  // a new reading speed re-thresholds every paragraph live, and the marker overlay
+  // follows too (so the toggle stays in step across a site's open tabs).
+  watchSettings((next) => {
+    if (next.readingWpm !== settings.readingWpm) {
+      settings.readingWpm = next.readingWpm;
+      for (const t of tracked.values()) t.thresholdMs = readThresholdMs(t.p.words, settings.readingWpm);
+    }
+
+    if (next.overlay !== settings.overlay) {
+      settings.overlay = next.overlay;
+      applyOverlayEnabled(settings.overlay);
+    }
+  });
 
   // ---- furthest position + resume -------------------------------------------
 
@@ -248,35 +344,72 @@ async function main() {
     if (incomingIdx > currentIdx) record.furthestReadHash = hash;
   }
 
-  offerResume(paragraphs, record.furthestReadHash);
+  let resumeCursor = -1;
+
+  function furthestIndex(): number {
+    return record.furthestReadHash === null ? -1 : indexOfHash.get(record.furthestReadHash) ?? -1;
+  }
+
+  // The first paragraph of the next unread run (a "gap") that sits BEFORE the furthest
+  // point reached, i.e. a stretch the reader skipped. Searches [fromIdx, beforeIdx); -1 if none.
+  function nextSkippedGap(fromIdx: number, beforeIdx: number): number {
+    for (let i = Math.max(0, fromIdx); i < beforeIdx; i++) {
+      const p = paragraphs[i];
+      if (p === undefined || p.hash in record.read) continue;
+
+      const prev = i === 0 ? undefined : paragraphs[i - 1];
+      if (prev === undefined || prev.hash in record.read) return i;
+    }
+
+    return -1;
+  }
+
+  function gapBehindFurthest(): boolean {
+    const before = furthestIndex();
+    return before > 0 && nextSkippedGap(0, before) !== -1;
+  }
+
+  // Popup "Continue where you left off": jump to the furthest paragraph reached.
+  function scrollFurthest() {
+    const idx = furthestIndex();
+    if (idx >= 0) paragraphs[idx]?.el.scrollIntoView({ behavior: "smooth", block: "center" });
+  }
+
+  // Popup "Go back to a spot you skipped": step through the gaps before the furthest
+  // point, wrapping around, landing with the last-read paragraph centered for context.
+  function scrollNextGap() {
+    const before = furthestIndex();
+    if (before <= 0) return;
+
+    let idx = nextSkippedGap(resumeCursor + 1, before);
+    if (idx === -1) idx = nextSkippedGap(0, before); // wrap to the first gap
+    if (idx === -1) return;
+
+    resumeCursor = idx;
+    paragraphs[Math.max(0, idx - 1)]?.el.scrollIntoView({ behavior: "smooth", block: "center" });
+  }
 
   // ---- link badges -----------------------------------------------------------
+  // Cross-page reading memory only: a dot means the link leads to another page (or a
+  // section of one) you have read. Links back into the current page are left alone,
+  // its read-state is already on screen as paragraph markers, and badging a page's own
+  // table of contents would count the page against itself.
 
   const links: Array<{ a: HTMLAnchorElement; target: LinkTarget }> = [];
   for (const a of document.querySelectorAll<HTMLAnchorElement>("a[href]")) {
     if (a.closest(".swdi-ui") !== null) continue;
 
     const target = splitLinkTarget(a.href);
-    if (target !== null) links.push({ a, target });
+    if (target !== null && target.page !== pageUrl) links.push({ a, target });
   }
 
-  const remotePages = [...new Set(links.map((l) => l.target.page))].filter((page) => page !== pageUrl);
+  const remotePages = [...new Set(links.map((l) => l.target.page))];
   const summaries   = await loadSummaries(remotePages);
 
-  function refreshLocalBadges() {
-    const summary = summarize(record);
-    for (const { a, target } of links) {
-      if (target.page === pageUrl) applyBadge(a, targetReadLevel(summary, target.fragment));
-    }
-  }
-
   for (const { a, target } of links) {
-    if (target.page === pageUrl) continue;
-
     const summary = summaries.get(target.page);
     applyBadge(a, summary === undefined ? "none" : targetReadLevel(summary, target.fragment));
   }
-  refreshLocalBadges();
 
   // ---- popup + badge ----------------------------------------------------------
 
@@ -287,6 +420,63 @@ async function main() {
 
   function applyOverlayEnabled(enabled: boolean) {
     document.documentElement.classList.toggle("swdi-overlay-off", !enabled);
+  }
+
+  // The popup tallies distinct destinations, not anchor tags: a page that links the
+  // same target ten times counts it once. "read" and "reading" stay apart, so a page
+  // you have only started never counts as one you have finished.
+  function linkReadCounts(): { read: number; reading: number } {
+    const byTarget = new Map<string, ReadLevel>();
+    for (const { target } of links) {
+      const summary = summaries.get(target.page);
+      byTarget.set(`${target.page}#${target.fragment ?? ""}`, summary === undefined ? "none" : targetReadLevel(summary, target.fragment));
+    }
+
+    let read    = 0;
+    let reading = 0;
+    for (const level of byTarget.values()) {
+      if      (level === "read")    read    += 1;
+      else if (level === "partial") reading += 1;
+    }
+
+    return { read, reading };
+  }
+
+  function clearRead(t: Tracked) {
+    t.read      = false;
+    t.accruedMs = 0;
+    delete record.read[t.p.hash];
+    t.p.el.classList.remove("swdi-read");
+    io.observe(t.p.el);
+  }
+
+  // "I've read this far" (the page context-menu item): the reader right-clicks the last
+  // thing they read. Everything at or above that point becomes read and everything below
+  // becomes unread, so the click is an exact place to resume from with no dwell overshoot
+  // left marked beneath it. A definitive statement, so it saves directly rather than
+  // through flush's union merge, which would resurrect the reads it just cleared.
+  async function markReadThisFar(pageY: number): Promise<void> {
+    let deepest: string | null = null;
+
+    for (const t of tracked.values()) {
+      const top = t.p.el.getBoundingClientRect().top + window.scrollY;
+
+      if (top <= pageY) {
+        if (!t.read) markRead(t);
+        deepest = t.p.hash;
+      } else if (t.read) {
+        clearRead(t);
+      }
+    }
+
+    // deepest === null means the click was above the first paragraph: "I've read this
+    // far" pointing at nothing resets the page, every paragraph cleared and no resume
+    // point, which is a handy way to start a reread from scratch.
+    if (persistTimer !== null) { clearTimeout(persistTimer); persistTimer = null; }
+    record.furthestReadHash = deepest;
+    await savePage(record, summarize(record));
+    sendBadge();
+    chrome.runtime.sendMessage({ type: "swdi:page-flushed" }).catch(() => {});
   }
 
   current = {
@@ -301,15 +491,21 @@ async function main() {
         read:    summary.read,
         changed: changed.size,
         overlay: settings.overlay,
-        badges:  badgeCounts(),
+        canResume:    furthestIndex() >= 0, // furthest paragraph still present on this page
+        hasGapBehind: gapBehindFurthest(),
+        badges:  linkReadCounts(),
       };
     },
 
     setOverlay: (value: boolean) => {
       settings.overlay = value;
       applyOverlayEnabled(value);
-      void saveSettings(settings);
+      void updateSettings({ overlay: value });
     },
+
+    markReadThisFar,
+    scrollFurthest,
+    scrollNextGap,
   };
 
   // The visit itself (outline, sightings, title) is worth persisting even if nothing gets read.
@@ -342,7 +538,7 @@ async function vouchFor(pageUrl: string, fallbackTitle: string): Promise<PageRec
 
   record.assumedReadAt ??= at;
   record.lastReadAt    ??= at;
-  for (const entry of record.outline) record.read[entry.h] ??= { at: record.assumedReadAt, dwellMs: 0 };
+  for (const entry of record.outline) record.read[entry.h] ??= { at: record.assumedReadAt, dwellMs: 0, words: entry.w };
 
   await savePage(record, summarize(record));
   chrome.runtime.sendMessage({ type: "swdi:page-flushed" }).catch(() => {});
@@ -442,8 +638,7 @@ function freshRecord(url: string): PageRecord {
 // gets, marked or not. Page scripts see an identical DOM shape and zero layout impact
 // whatever your history says, so which links you have read is not legible to the page.
 // Cross-page reading state must never be readable by page JavaScript.
-const badgeDots   = new WeakMap<HTMLAnchorElement, HTMLElement>();
-const badgeLevels = new Map<HTMLAnchorElement, ReadLevel>();
+const badgeDots = new WeakMap<HTMLAnchorElement, HTMLElement>();
 
 function applyBadge(a: HTMLAnchorElement, level: ReadLevel) {
   let dot = badgeDots.get(a);
@@ -458,8 +653,6 @@ function applyBadge(a: HTMLAnchorElement, level: ReadLevel) {
     badgeDots.set(a, dot);
   }
 
-  badgeLevels.set(a, level);
-
   if (level === "none") {
     dot.style.display = "none";
     dot.removeAttribute("title");
@@ -469,17 +662,7 @@ function applyBadge(a: HTMLAnchorElement, level: ReadLevel) {
   const green = darkReaderActive() ? "127, 172, 144" : "92, 138, 111";
   const color = level === "read" ? `rgba(${green}, 0.95)` : `rgba(${green}, 0.5)`;
   dot.style.cssText = `position: absolute; display: block; left: 0.1em; top: -0.85em; width: 0.42em; height: 0.42em; border-radius: 50%; background: ${color};`;
-  dot.title         = level === "read" ? "You have read this" : "You have partly read this";
-}
-
-function badgeCounts(): { read: number; partial: number } {
-  const counts = { read: 0, partial: 0 };
-  for (const level of badgeLevels.values()) {
-    if      (level === "read")    counts.read    += 1;
-    else if (level === "partial") counts.partial += 1;
-  }
-
-  return counts;
+  dot.title         = level === "read" ? "You have read this" : "You are still reading this";
 }
 
 // We can't darkreader-lock a page we don't own, and when Dark Reader restyles one of
@@ -505,25 +688,3 @@ function darkReaderActive(): boolean {
   return document.documentElement.classList.contains("swdi-darkreader");
 }
 
-function offerResume(paragraphs: Paragraph[], furthestHash: string | null) {
-  if (furthestHash === null) return;
-
-  const target = paragraphs.find((p) => p.hash === furthestHash);
-  if (target === undefined) return;
-  if (target.el.getBoundingClientRect().top <= window.innerHeight) return;
-
-  const pill = document.createElement("button");
-  pill.className   = "swdi-resume swdi-ui";
-  pill.textContent = "Continue where you left off";
-  pill.addEventListener("click", () => {
-    target.el.scrollIntoView({ behavior: "smooth", block: "center" });
-    pill.remove();
-  });
-  document.body.appendChild(pill);
-
-  // The pill also leaves once the reader scrolls down to their old position on their own.
-  const seen = new IntersectionObserver((entries) => {
-    if (entries.some((e) => e.isIntersecting)) { pill.remove(); seen.disconnect(); }
-  });
-  seen.observe(target.el);
-}

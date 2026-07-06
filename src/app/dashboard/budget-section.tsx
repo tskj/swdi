@@ -137,7 +137,7 @@ function Proposal(props: {
   const proposed = proposalWithShare(
     props.budget.amountMinor,
     props.sharePct,
-    props.engaged.map((e) => ({ key: e.entry.name, weight: e.dwellMs })),
+    props.engaged.map((e) => ({ key: e.entry.name, weight: e.words })),
   );
 
   const lines = proposed.map((allocation) => ({

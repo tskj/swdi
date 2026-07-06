@@ -6,63 +6,89 @@
   <title>SWDI Reader</title>
 </head>
 <body>
-  <header>SWDI Reader</header>
+  <header>
+    <span class="title">SWDI Reader</span>
+    <button type="button" id="nav-settings" class="linkish">Settings</button>
+  </header>
 
-  <section id="page">
+  <section id="main-view">
     <p id="status">Checking this page...</p>
     <div id="stats" hidden>
       <div class="bar"><div id="bar-fill"></div></div>
       <p id="numbers"></p>
       <p id="changed" hidden></p>
       <p id="links" hidden></p>
-      <label class="row">
-        <input type="checkbox" id="overlay">
-        Show read markers on the page
-      </label>
+      <div id="resume-actions">
+        <button id="resume-furthest">Continue where you left off</button>
+        <button id="resume-gap" class="quiet">Go back to a spot you skipped</button>
+      </div>
+      <div class="marker-toggle-row">
+        <label class="row marker-label">
+          <input type="checkbox" id="overlay">
+          Show read markers on every page
+        </label>
+        <button type="button" id="markers-info-toggle" class="info-toggle" aria-expanded="false" title="About read markers">?</button>
+      </div>
+      <p id="markers-info" class="hint" hidden>Read markers are the green vertical bars to the left of paragraphs, which show which paragraphs SWDI Reader thinks you have read. Paragraphs get marked as read as you scroll past them. How long a paragraph has to stay in view before it counts is set by the reading speed control in Settings. This toggle only shows or hides the markers; paragraphs are tracked in the background either way.</p>
+      <p id="read-here-hint" class="hint">Right-click a paragraph and choose "I've read this far" to mark everything above it read and everything below unread, so you resume exactly there next time.</p>
     </div>
     <div class="pair" id="page-actions" hidden>
       <button id="mark-read">Mark page as read</button>
       <button id="backfill" class="quiet">Mark links by clicking</button>
     </div>
-    <label class="row" id="pause-row" hidden>
-      <input type="checkbox" id="pause">
-      <span id="pause-label">Pause on this site</span>
+    <label class="row" id="pause-host-row" hidden>
+      <input type="checkbox" id="pause-host">
+      <span id="pause-host-label">Pause on this site</span>
+    </label>
+    <label class="row" id="pause-page-row" hidden>
+      <input type="checkbox" id="pause-page">
+      Pause on this page
     </label>
   </section>
 
-  <hr>
-
-  <section id="sync">
-    <p class="section-title">Sync</p>
-
-    <div id="sync-off" hidden>
-      <p class="hint">Your reading stays on this device until you turn sync on, and the extension is complete without it. Connecting is never destructive: the reading on this device merges with whatever the key already holds, and nothing is lost on either side. Synced data is end to end encrypted; the sync key never leaves your devices.</p>
-      <button id="sync-enable">Turn on sync</button>
-      <button id="sync-have" class="quiet">I already have a key</button>
-      <div id="sync-connect" hidden>
-        <input id="sync-input" type="text" placeholder="Paste your sync key" spellcheck="false" autocomplete="off">
-        <button id="sync-connect-btn">Connect</button>
+  <section id="settings-view" hidden>
+    <div class="speed">
+      <div class="speed-head">
+        <label for="reading-speed">Reading speed</label>
+        <span id="reading-speed-value"></span>
       </div>
+      <input type="range" id="reading-speed" min="120" max="520" step="20">
     </div>
 
-    <div id="sync-on" hidden>
-      <p class="hint">This key opens your reading on other devices and the dashboard. Keep it private, ideally in a password manager; the dashboard's connect form can save it there for you.</p>
-      <div class="keyrow">
-        <input id="sync-secret" type="text" readonly spellcheck="false">
-        <button id="sync-copy" class="quiet">Copy</button>
+    <hr>
+
+    <section id="sync">
+      <p class="section-title">Sync</p>
+
+      <div id="sync-off" hidden>
+        <p class="hint">Your reading stays on this device until you turn sync on, and the extension is complete without it. Connecting is never destructive: the reading on this device merges with whatever the key already holds, and nothing is lost on either side. Synced data is end to end encrypted; the sync key never leaves your devices.</p>
+        <button id="sync-enable">Turn on sync</button>
+        <button id="sync-have" class="quiet">I already have a key</button>
+        <div id="sync-connect" hidden>
+          <input id="sync-input" type="text" placeholder="Paste your sync key" spellcheck="false" autocomplete="off">
+          <button id="sync-connect-btn">Connect</button>
+        </div>
       </div>
-      <p id="sync-status" class="hint"></p>
-      <div class="pair">
-        <button id="sync-now">Sync now</button>
-        <button id="sync-disable" class="quiet">Turn off</button>
+
+      <div id="sync-on" hidden>
+        <p class="hint">This key opens your reading on other devices and the dashboard. Keep it private, ideally in a password manager; the dashboard's connect form can save it there for you.</p>
+        <div class="keyrow">
+          <input id="sync-secret" type="text" readonly spellcheck="false">
+          <button id="sync-copy" class="quiet">Copy</button>
+        </div>
+        <p id="sync-status" class="hint"></p>
+        <div class="pair">
+          <button id="sync-now">Sync now</button>
+          <button id="sync-disable" class="quiet">Turn off</button>
+        </div>
+        <a id="dashboard-link" href="#" target="_blank" rel="noreferrer">Open your dashboard</a>
       </div>
-      <a id="dashboard-link" href="#" target="_blank" rel="noreferrer">Open your dashboard</a>
-    </div>
+    </section>
+
+    <hr>
+
+    <button id="export" class="quiet">Export my data</button>
   </section>
-
-  <hr>
-
-  <button id="export" class="quiet">Export my data</button>
 
   <script src="popup/popup.js"></script>
 </body>

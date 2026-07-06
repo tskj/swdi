@@ -148,12 +148,12 @@ describe("mergePages", () => {
     const older = page("https://a.com/x", {
       lastVisitAt: "2026-01-01T00:00:00.000Z",
       outline: [{ h: "old", w: 10, s: null }],
-      read:    { old: { at: "2026-01-01T00:00:00.000Z", dwellMs: 100 } },
+      read:    { old: { at: "2026-01-01T00:00:00.000Z", dwellMs: 100, words: 10 } },
     });
     const newer = page("https://a.com/x", {
       lastVisitAt: "2026-02-01T00:00:00.000Z",
       outline: [{ h: "new", w: 10, s: null }],
-      read:    { new: { at: "2026-02-01T00:00:00.000Z", dwellMs: 200 } },
+      read:    { new: { at: "2026-02-01T00:00:00.000Z", dwellMs: 200, words: 10 } },
     });
 
     const merged = mergePages([older], [newer]);

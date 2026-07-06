@@ -10,7 +10,7 @@ const BASE = "http://localhost:3105";
 function record(url: string, title: string, total: number, read: number, at: string): PageRecord {
   const outline = Array.from({ length: total }, (_, i) => ({ h: `${i.toString(16).padStart(4, "0")}${url.length.toString(16)}`.padEnd(8, "e"), w: 60, s: null }));
   const readMap: PageRecord["read"] = {};
-  for (const entry of outline.slice(0, read)) readMap[entry.h] = { at, dwellMs: 30_000 };
+  for (const entry of outline.slice(0, read)) readMap[entry.h] = { at, dwellMs: 30_000, words: entry.w };
 
   return {
     v: 1, url, title,

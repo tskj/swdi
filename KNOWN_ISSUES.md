@@ -7,10 +7,11 @@ what breaks, why it is the way it is, and what the fix would look like.
 
 Sync merges are pure unions (`mergePages`/`mergeRecords` in `shared/src/`): every device
 folds the remote set into its local set and uploads the result. Nothing represents "this
-page was deleted", so removing a page locally (the backfill undo in
-`extension/src/lib/storage.ts` `removePage`, or any future delete affordance) only sticks
-if it happens before the next sync; after that, the page returns from the server on the
-following merge.
+page was deleted" or "this paragraph was un-read", so clearing read-state locally (the
+backfill undo `removePage`, or the below-the-click clearing in "I've read this far",
+`markReadThisFar` in `extension/src/content.ts`) only sticks if it happens before the next
+sync; after that, the cleared reads return from the server on the following merge. Reads
+cleared before they were ever synced never leave the device, so the common case holds.
 
 Fix shape: a sync payload revision (`v: 2`) carrying per-url tombstones with timestamps,
 merged like reads (latest of delete-vs-recreate wins), plus a migration path for v1 blobs.
@@ -26,6 +27,7 @@ instance; move the buckets to Postgres (or add a shared store) before scaling ou
 ## Backfilled reading carries no donation weight
 
 A page vouched for via backfill (`assumedReadAt`) counts as read everywhere visible, but
-contributes zero dwell time, so it never influences the monthly proposal. Chosen so money
-follows measured reading only. If assumed reading should ever count, the policy lives in
-one place: `authorEngagement` in `src/app/dashboard/derive.ts`.
+carries zero dwell time. The monthly proposal weights authors by the word count of the
+paragraphs read, gated on a read having real dwell (`dwellMs > 0`), so vouched reading is
+excluded and money follows measured reading only. If assumed reading should ever count,
+the policy lives in one place: `authorEngagement` in `src/app/dashboard/derive.ts`.

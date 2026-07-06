@@ -9,6 +9,7 @@ import { syncNow } from "./lib/sync-client";
 
 const PERIODIC_ALARM = "swdi:sync-periodic";
 const DEBOUNCE_ALARM = "swdi:sync-debounce";
+const READ_HERE_MENU = "swdi:read-up-to-here";
 
 const PERIODIC_MINUTES = 15;
 const DEBOUNCE_MINUTES = 1;
@@ -39,7 +40,30 @@ chrome.alarms.onAlarm.addListener((alarm) => {
 });
 
 chrome.runtime.onStartup.addListener(() => void ensurePeriodicAlarm());
-chrome.runtime.onInstalled.addListener(() => void ensurePeriodicAlarm());
+chrome.runtime.onInstalled.addListener(() => {
+  void ensurePeriodicAlarm();
+  createReadHereMenu();
+});
+
+// The reader right-clicks where they stopped and everything above fills in as read; the
+// content script resolves "here" from the click position it captured. Offered on any web
+// page, but a no-op unless that page is one SWDI is tracking.
+chrome.contextMenus.onClicked.addListener((info, tab) => {
+  if (info.menuItemId !== READ_HERE_MENU || tab?.id === undefined) return;
+
+  void chrome.tabs.sendMessage(tab.id, { type: "swdi:read-up-to-here" }).catch(() => {});
+});
+
+function createReadHereMenu(): void {
+  chrome.contextMenus.removeAll(() => {
+    chrome.contextMenus.create({
+      id:                  READ_HERE_MENU,
+      title:               "I've read this far",
+      contexts:            ["page", "selection", "link"],
+      documentUrlPatterns: ["http://*/*", "https://*/*"],
+    });
+  });
+}
 
 function paintBadge(msg: { read: number; total: number }, tabId: number | undefined) {
   if (tabId === undefined) return;

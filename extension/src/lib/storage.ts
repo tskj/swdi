@@ -70,12 +70,41 @@ export async function saveSettings(settings: Settings): Promise<void> {
   await chrome.storage.local.set({ [SETTINGS_KEY]: settings });
 }
 
+/** Load-modify-save one or more fields, so a partial write can't clobber another context's changes. */
+export async function updateSettings(patch: Partial<Settings>): Promise<Settings> {
+  const settings = { ...(await loadSettings()), ...patch };
+  await saveSettings(settings);
+  return settings;
+}
+
+/** Call back with parsed settings whenever they change, e.g. so the popup's edits apply live. */
+export function watchSettings(onChange: (settings: Settings) => void): void {
+  chrome.storage.onChanged.addListener((changes, area) => {
+    if (area !== "local") return;
+
+    const change = changes[SETTINGS_KEY];
+    if (change === undefined) return;
+
+    const parsed = settingsSchema.safeParse(change.newValue);
+    if (parsed.success) onChange(parsed.data);
+  });
+}
+
 /** Add or remove a host from the paused list; takes effect on the next page load. */
 export async function savePausedHosts(host: string, paused: boolean): Promise<void> {
   const settings = await loadSettings();
   const without  = settings.blockedHosts.filter((blocked) => blocked !== host);
 
   settings.blockedHosts = paused ? [...without, host] : without;
+  await saveSettings(settings);
+}
+
+/** Add or remove a single page from the paused list; takes effect on the next page load. */
+export async function savePausedPages(pageUrl: string, paused: boolean): Promise<void> {
+  const settings = await loadSettings();
+  const without  = settings.blockedPages.filter((blocked) => blocked !== pageUrl);
+
+  settings.blockedPages = paused ? [...without, pageUrl] : without;
   await saveSettings(settings);
 }
 

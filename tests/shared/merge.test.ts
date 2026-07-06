@@ -27,8 +27,8 @@ function record(partial: Partial<PageRecord>): PageRecord {
 
 describe("mergeRecords", () => {
   it("unions reads from a concurrent tab instead of losing them", () => {
-    const mine   = record({ read: { a: { at: "2026-03-01T00:00:00.000Z", dwellMs: 4000 } } });
-    const stored = record({ read: { b: { at: "2026-03-02T00:00:00.000Z", dwellMs: 6000 } }, lastReadAt: "2026-03-02T00:00:00.000Z" });
+    const mine   = record({ read: { a: { at: "2026-03-01T00:00:00.000Z", dwellMs: 4000, words: 50 } } });
+    const stored = record({ read: { b: { at: "2026-03-02T00:00:00.000Z", dwellMs: 6000, words: 50 } }, lastReadAt: "2026-03-02T00:00:00.000Z" });
 
     mergeRecords(mine, stored);
 
@@ -37,8 +37,8 @@ describe("mergeRecords", () => {
   });
 
   it("keeps the earliest read and sighting per hash", () => {
-    const mine   = record({ read: { a: { at: "2026-03-05T00:00:00.000Z", dwellMs: 1 } }, seen: { a: "2026-03-05T00:00:00.000Z" } });
-    const stored = record({ read: { a: { at: "2026-03-01T00:00:00.000Z", dwellMs: 2 } }, seen: { a: "2026-03-01T00:00:00.000Z" } });
+    const mine   = record({ read: { a: { at: "2026-03-05T00:00:00.000Z", dwellMs: 1, words: 50 } }, seen: { a: "2026-03-05T00:00:00.000Z" } });
+    const stored = record({ read: { a: { at: "2026-03-01T00:00:00.000Z", dwellMs: 2, words: 50 } }, seen: { a: "2026-03-01T00:00:00.000Z" } });
 
     mergeRecords(mine, stored);
 

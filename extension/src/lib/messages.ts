@@ -23,12 +23,29 @@ export const setSitePausedMessageSchema = z.object({
   value: z.boolean(),
 });
 
+export const setPagePausedMessageSchema = z.object({
+  type:  z.literal("swdi:set-page-paused"),
+  value: z.boolean(),
+});
+
 export const pageFlushedMessageSchema = z.object({
   type: z.literal("swdi:page-flushed"),
 });
 
 export const markPageReadMessageSchema = z.object({
   type: z.literal("swdi:mark-page-read"),
+});
+
+export const readUpToHereMessageSchema = z.object({
+  type: z.literal("swdi:read-up-to-here"),
+});
+
+export const scrollFurthestMessageSchema = z.object({
+  type: z.literal("swdi:scroll-furthest"),
+});
+
+export const scrollNextGapMessageSchema = z.object({
+  type: z.literal("swdi:scroll-next-gap"),
 });
 
 export const setBackfillMessageSchema = z.object({
@@ -51,17 +68,21 @@ export const popupStateSchema = z.discriminatedUnion("phase", [
   z.object({
     phase: z.literal("tracking"),
     host:  z.string(),
+    hostPaused: z.boolean(),
+    pagePaused: z.boolean(),
 
     title:   z.string(),
     total:   z.number(),
     read:    z.number(),
     changed: z.number(),
     overlay: z.boolean(),
-    badges:  z.object({ read: z.number(), partial: z.number() }),
+    canResume:    z.boolean(),
+    hasGapBehind: z.boolean(),
+    badges:  z.object({ read: z.number(), reading: z.number() }),
   }),
-  z.object({ phase: z.literal("unsuitable"), host: z.string() }),
-  z.object({ phase: z.literal("paused"),     host: z.string() }),
-  z.object({ phase: z.literal("starting"),   host: z.string() }),
+  z.object({ phase: z.literal("unsuitable"), host: z.string(), hostPaused: z.boolean(), pagePaused: z.boolean() }),
+  z.object({ phase: z.literal("paused"),     host: z.string(), hostPaused: z.boolean(), pagePaused: z.boolean() }),
+  z.object({ phase: z.literal("starting"),   host: z.string(), hostPaused: z.boolean(), pagePaused: z.boolean() }),
 ]);
 
 export type BadgeMessage = z.infer<typeof badgeMessageSchema>;

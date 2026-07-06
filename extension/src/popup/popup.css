@@ -8,9 +8,24 @@ body {
 }
 
 header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
   font-weight: 600;
   margin-bottom: 10px;
 }
+
+.linkish {
+  width: auto;
+  padding: 0;
+  border: 0;
+  background: none;
+  font-size: 12px;
+  font-weight: 400;
+  opacity: 0.75;
+}
+
+.linkish:hover { background: none; opacity: 1; }
 
 #status  { margin: 0 0 10px; opacity: 0.75; }
 #numbers { margin: 6px 0 0; }
@@ -54,6 +69,43 @@ hr {
   font-size: 12px;
   opacity: 0.75;
 }
+
+.marker-toggle-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 12px 0;
+}
+
+.marker-toggle-row .row { flex: 1; margin: 0; }
+
+.info-toggle {
+  flex: none;
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  border-radius: 50%;
+  font-size: 11px;
+  line-height: 16px;
+  opacity: 0.7;
+}
+
+.info-toggle:hover { opacity: 1; }
+
+.speed {
+  margin: 12px 0;
+  font-size: 12px;
+}
+
+.speed-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+}
+
+.speed label { opacity: 0.85; }
+.speed input[type="range"] { width: 100%; margin-top: 6px; }
+#reading-speed-value { margin: 0; white-space: nowrap; opacity: 0.75; }
 
 .keyrow,
 .pair {
@@ -106,6 +158,16 @@ button {
 }
 
 button:hover { background: light-dark(#f0f2f4, #333d46); }
+
+button:disabled { opacity: 0.4; cursor: default; }
+button:disabled:hover { background: transparent; }
+
+#resume-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 12px 0;
+}
 
 /* Squircle corners where the platform has them (Chromium 139+); circular elsewhere. */
 @supports (corner-shape: squircle) {

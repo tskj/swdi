@@ -61,7 +61,7 @@ describe("summarize", () => {
   it("counts reads per page and per section", () => {
     const summary = summarize(record({
       outline,
-      read: { b: { at: "2026-01-02T00:00:00.000Z", dwellMs: 9000 } },
+      read: { b: { at: "2026-01-02T00:00:00.000Z", dwellMs: 9000, words: 50 } },
     }));
 
     expect(summary.total).toBe(4);
@@ -76,8 +76,8 @@ describe("summarize", () => {
     const summary = summarize(record({
       outline,
       read: {
-        b: { at: "2026-01-02T00:00:00.000Z", dwellMs: 9000 },
-        c: { at: "2026-01-02T00:00:00.000Z", dwellMs: 9000 },
+        b: { at: "2026-01-02T00:00:00.000Z", dwellMs: 9000, words: 50 },
+        c: { at: "2026-01-02T00:00:00.000Z", dwellMs: 9000, words: 50 },
       },
     }));
 
@@ -96,7 +96,7 @@ describe("newSinceLastRead", () => {
   it("flags hashes never seen before the last reading, and skips read ones", () => {
     const r = record({
       lastReadAt: "2026-02-01T00:00:00.000Z",
-      read: { a: { at: "2026-02-01T00:00:00.000Z", dwellMs: 5000 } },
+      read: { a: { at: "2026-02-01T00:00:00.000Z", dwellMs: 5000, words: 50 } },
       seen: {
         a: "2026-01-01T00:00:00.000Z",
         b: "2026-01-01T00:00:00.000Z",

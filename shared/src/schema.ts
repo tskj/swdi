@@ -20,7 +20,8 @@ export const pageRecordSchema = z.object({
   lastReadAt:  z.string().nullable(),
 
   outline: z.array(outlineEntrySchema),                                    // structure as of the last visit
-  read:    z.record(z.string(), z.object({ at: z.string(), dwellMs: z.number() })),
+  read:    z.record(z.string(), z.object({ at: z.string(), dwellMs: z.number(), words: z.number().default(0) })), // words stamped at read time; pre-existing records default to 0 and self-heal on revisit
+
   seen:    z.record(z.string(), z.string()),                               // hash -> first sighting on this page
 
   furthestReadHash: z.string().nullable(),
@@ -57,15 +58,22 @@ export const settingsSchema = z.object({
 
   syncSecret:   z.string().nullable().default(null),
   syncBaseUrl:  z.string().default(SYNC_DEFAULT_BASE_URL),
-  blockedHosts: z.array(z.string()).default([]),
+  blockedHosts: z.array(z.string()).default([]), // paused sites (host or subdomain match)
+  blockedPages: z.array(z.string()).default([]), // paused single pages (normalized url, exact)
+
+  // Words per minute the reader is assumed to read at; the read-dwell threshold derives
+  // from it (see readThresholdMs). Bad values stay harmless: the threshold is clamped.
+  readingWpm:   z.number().default(260),
 });
 
 export const DEFAULT_SETTINGS: Settings = {
-  overlay: true,
+  overlay: false, // markers are opt-in; tracking and the popup percent work regardless
 
   syncSecret:   null,
   syncBaseUrl:  SYNC_DEFAULT_BASE_URL,
   blockedHosts: [],
+  blockedPages: [],
+  readingWpm:   260,
 };
 
 export type OutlineEntry = z.infer<typeof outlineEntrySchema>;

@@ -1,6 +1,6 @@
 import { ensure, generateSyncSecret, deriveSyncKeys, nowIso } from "@swdi/shared";
 import { PopupState, popupStateSchema, syncResultSchema } from "../lib/messages";
-import { exportAll, loadSettings, loadSyncMeta, saveSettings } from "../lib/storage";
+import { exportAll, loadSettings, loadSyncMeta, saveSettings, updateSettings } from "../lib/storage";
 
 // Every handler is wired exactly once at startup; re-renders only change visibility
 // and text. Wiring inside a render stacks duplicate listeners across state changes.
@@ -11,8 +11,11 @@ const STARTING_RETRY_MAX = 10;
 main().catch(() => showUntracked());
 
 async function main() {
+  wireNav();
   wireExport();
   wireSyncHandlers();
+  wireMarkersInfo();
+  await wireReadingSpeed();
   await renderSyncSection();
 
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
@@ -50,15 +53,12 @@ async function pageState(tabId: number): Promise<PopupState | null> {
 function renderPage(state: PopupState) {
   if (state.phase === "starting") return;
 
-  const row      = el("pause-row");
-  const checkbox = el<HTMLInputElement>("pause");
-
-  row.hidden       = false;
-  checkbox.checked = state.phase === "paused";
-  el("pause-label").textContent = `Pause on ${state.host}`;
+  renderPauseRows(state);
 
   if (state.phase === "paused") {
-    el("status").textContent = `SWDI is paused on ${state.host}.`;
+    el("status").textContent = state.hostPaused
+      ? `SWDI is paused on ${state.host}.`
+      : "SWDI is paused on this page.";
     return;
   }
 
@@ -77,17 +77,33 @@ function renderPage(state: PopupState) {
 
   el<HTMLInputElement>("overlay").checked = state.overlay;
 
+  // The resume buttons always show; they disable when there is nothing to do (no
+  // furthest point reached yet, or no skipped stretch behind it).
+  el<HTMLButtonElement>("resume-furthest").disabled = !state.canResume;
+  el<HTMLButtonElement>("resume-gap").disabled      = !state.hasGapBehind;
+
   if (state.changed > 0) {
     const changed = el("changed");
     changed.hidden      = false;
     changed.textContent = `${state.changed} paragraphs are new or changed since you read this page.`;
   }
 
-  const known = state.badges.read + state.badges.partial;
-  if (known > 0) {
+  const sentences: string[] = [];
+  if (state.badges.read > 0) {
+    sentences.push(state.badges.read === 1
+      ? "1 link here points to a page you have read."
+      : `${state.badges.read} links here point to pages you have read.`);
+  }
+  if (state.badges.reading > 0) {
+    sentences.push(state.badges.reading === 1
+      ? "1 link here points to a page you are still reading."
+      : `${state.badges.reading} links here point to pages you are still reading.`);
+  }
+
+  if (sentences.length > 0) {
     const links = el("links");
     links.hidden      = false;
-    links.textContent = `${known} links here point to things you have read.`;
+    links.textContent = sentences.join(" ");
   }
 }
 
@@ -108,21 +124,103 @@ function wirePageHandlers(state: PopupState, tabId: number) {
     window.close();
   });
 
+  // Scroll the page (behind the popup) to the resume point; keep the popup open so the
+  // reader can step through skipped gaps with repeated clicks.
+  el("resume-furthest").addEventListener("click", () => {
+    void chrome.tabs.sendMessage(tabId, { type: "swdi:scroll-furthest" });
+  });
+
+  el("resume-gap").addEventListener("click", () => {
+    void chrome.tabs.sendMessage(tabId, { type: "swdi:scroll-next-gap" });
+  });
+
   el<HTMLInputElement>("overlay").addEventListener("change", (event) => {
     const checked = (event.target as HTMLInputElement).checked;
     void chrome.tabs.sendMessage(tabId, { type: "swdi:set-overlay", value: checked });
   });
 
-  el<HTMLInputElement>("pause").addEventListener("change", async (event) => {
+  el<HTMLInputElement>("pause-host").addEventListener("change", async (event) => {
     const checked = (event.target as HTMLInputElement).checked;
     await chrome.tabs.sendMessage(tabId, { type: "swdi:set-site-paused", value: checked });
 
-    el("status").hidden      = false;
-    el("stats").hidden       = true;
-    el("status").textContent = checked
-      ? `Paused on ${state.host}. Takes full effect when the page reloads.`
-      : `Resumed on ${state.host}. Reload the page to start tracking.`;
+    // A site pause supersedes the per-page toggle; lock it on and show it checked, then
+    // hand it back to its own stored state when the site is un-paused.
+    const pageBox = el<HTMLInputElement>("pause-page");
+    pageBox.disabled = checked;
+    pageBox.checked  = checked || state.pagePaused;
+
+    showPauseNotice(checked ? `Paused on ${state.host}.` : `Resumed on ${state.host}.`, checked);
   });
+
+  el<HTMLInputElement>("pause-page").addEventListener("change", async (event) => {
+    const checked = (event.target as HTMLInputElement).checked;
+    await chrome.tabs.sendMessage(tabId, { type: "swdi:set-page-paused", value: checked });
+
+    showPauseNotice(checked ? "Paused on this page." : "Resumed on this page.", checked);
+  });
+}
+
+// Both pause checkboxes reflect the stored flags; a site pause supersedes and locks the
+// per-page one.
+function renderPauseRows(state: PopupState) {
+  const hostBox = el<HTMLInputElement>("pause-host");
+  const pageBox = el<HTMLInputElement>("pause-page");
+
+  el("pause-page-row").hidden = false;
+  el("pause-host-row").hidden = false;
+  el("pause-host-label").textContent = `Pause on ${state.host}`;
+
+  hostBox.checked  = state.hostPaused;
+  pageBox.checked  = state.pagePaused || state.hostPaused;
+  pageBox.disabled = state.hostPaused;
+}
+
+function showPauseNotice(what: string, paused: boolean) {
+  el("status").hidden      = false;
+  el("stats").hidden       = true;
+  el("status").textContent = paused
+    ? `${what} Takes full effect when the page reloads.`
+    : `${what} Reload the page to start tracking.`;
+}
+
+// Reading speed, sync and export live behind a Settings view; the header button flips
+// between it and the page view.
+function wireNav() {
+  const btn      = el<HTMLButtonElement>("nav-settings");
+  const main     = el("main-view");
+  const settings = el("settings-view");
+
+  btn.addEventListener("click", () => {
+    const toSettings = settings.hidden;
+    settings.hidden = !toSettings;
+    main.hidden     = toSettings;
+    btn.textContent = toSettings ? "Back" : "Settings";
+  });
+}
+
+function wireMarkersInfo() {
+  const toggle = el<HTMLButtonElement>("markers-info-toggle");
+  const info   = el("markers-info");
+
+  toggle.addEventListener("click", () => {
+    const open = info.hidden;
+    info.hidden = !open;
+    toggle.setAttribute("aria-expanded", String(open));
+  });
+}
+
+async function wireReadingSpeed() {
+  const slider   = el<HTMLInputElement>("reading-speed");
+  const value    = el("reading-speed-value");
+  const settings = await loadSettings();
+
+  const show = (wpm: number) => { value.textContent = `${wpm} words per minute`; };
+
+  slider.value = String(settings.readingWpm);
+  show(settings.readingWpm);
+
+  slider.addEventListener("input",  () => show(Number(slider.value)));
+  slider.addEventListener("change", () => void updateSettings({ readingWpm: Number(slider.value) }));
 }
 
 function showUntracked() {

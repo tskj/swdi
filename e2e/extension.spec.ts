@@ -59,17 +59,25 @@ async function storedRecord(): Promise<any> {
   }, PAGE_KEY);
 }
 
-test("first visit collects the outline and dwell turns paragraphs read", async () => {
+test("first visit collects the outline, and scrolling a paragraph out of view commits it", async () => {
+  // Read fast, so every paragraph's threshold is the 2s floor and the test stays quick.
+  await worker.evaluate(() => chrome.storage.local.set({ "swdi:settings": { overlay: true, readingWpm: 100000 } }));
+
   const page = await context.newPage();
   await page.goto(PAGE_URL);
 
   // Boot persists the visit (outline + sightings) even before anything is read.
   await expect.poll(async () => (await storedRecord())?.outline?.length ?? 0, { timeout: 15_000 }).toBeGreaterThan(10);
 
-  // Sitting at the top of the page long enough marks the short opening paragraphs read.
-  await expect.poll(() => page.locator(".swdi-read").count(), { timeout: 45_000 }).toBeGreaterThan(0);
+  // Sitting still commits nothing: dwell only earns eligibility.
+  await page.waitForTimeout(2500);
+  expect(await page.locator(".swdi-read").count()).toBe(0);
 
+  // Scrolling the opening paragraphs out of view commits the ones watched long enough.
+  await page.evaluate(() => window.scrollTo(0, window.innerHeight * 3));
+  await expect.poll(() => page.locator(".swdi-read").count(), { timeout: 15_000 }).toBeGreaterThan(0);
   await expect.poll(async () => Object.keys((await storedRecord()).read).length, { timeout: 15_000 }).toBeGreaterThan(0);
+
   await page.close();
 });
 
@@ -103,7 +111,7 @@ test("silently ignores pages without enough readable text", async () => {
   await page.close();
 });
 
-test("read state seeds overlay markers, link badges and the resume pill", async () => {
+test("read state seeds overlay markers, link badges, and popup-driven resume", async () => {
   // Simulate an earlier reading session: first 60% of paragraphs read, and a
   // page this chapter links to marked fully read.
   await worker.evaluate(async ({ pageKey, linkedKey }) => {
@@ -147,12 +155,13 @@ test("read state seeds overlay markers, link badges and the resume pill", async 
   const host = page.locator(`a[href*="fixation-and-denial"] .swdi-badge-host`).first();
   await expect(host).toBeAttached({ timeout: 15_000 });
 
-  const pill = page.locator(".swdi-resume");
-  await expect(pill).toBeVisible({ timeout: 15_000 });
-
+  // Resume is popup-driven now: "Continue where you left off" scrolls to the furthest
+  // paragraph. Drive it through the message the popup button sends.
   const before = await page.evaluate(() => window.scrollY);
-  await pill.click();
-  await expect(pill).not.toBeAttached();
+  await worker.evaluate(async () => {
+    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+    await chrome.tabs.sendMessage(tab.id, { type: "swdi:scroll-furthest" });
+  });
   await expect.poll(() => page.evaluate(() => window.scrollY), { timeout: 10_000 }).toBeGreaterThan(before);
 
   await page.close();
@@ -191,6 +200,56 @@ test("backfill: click links to vouch for them, and mark the current page read", 
     const record = await storedRecord();
     return record !== null && Object.keys(record.read).length === record.outline.length;
   }, { timeout: 10_000 }).toBe(true);
+
+  await page.close();
+});
+
+test("'I've read this far' marks everything above read and clears everything below", async () => {
+  await worker.evaluate((key) => chrome.storage.local.remove(key), PAGE_KEY);
+
+  const page = await context.newPage();
+  await page.goto(PAGE_URL);
+  await expect.poll(async () => (await storedRecord())?.outline?.length ?? 0, { timeout: 15_000 }).toBeGreaterThan(10);
+
+  // Simulate a page already fully marked read (e.g. dwell overshoot), then reload so the
+  // content script paints every paragraph.
+  await worker.evaluate(async (key) => {
+    const got    = await chrome.storage.local.get(key);
+    const record = got[key];
+    for (const entry of record.outline) record.read[entry.h] = { at: "2026-06-01T00:00:00.000Z", dwellMs: 5000 };
+    record.lastReadAt = "2026-06-01T00:00:00.000Z";
+    await chrome.storage.local.set({ [key]: record });
+  }, PAGE_KEY);
+
+  await page.reload();
+  const total = (await storedRecord()).outline.length;
+  await expect.poll(() => page.locator(".swdi-read").count(), { timeout: 15_000 }).toBe(total);
+
+  // Right-click a paragraph partway down. The content script captures the click's
+  // document Y off the real contextmenu event; the OS menu item itself cannot be
+  // automated, so we send the message it would.
+  const paras  = page.locator("article#article p");
+  const target = paras.nth(Math.floor((await paras.count()) / 2));
+  await target.click({ button: "right" });
+  const clickY = await target.evaluate((el) => el.getBoundingClientRect().top + (el as HTMLElement).offsetHeight / 2 + window.scrollY);
+
+  // Scroll away first, so cleared paragraphs below can't re-commit while out of the check.
+  await page.evaluate(() => window.scrollTo(0, 0));
+  await worker.evaluate(async () => {
+    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+    await chrome.tabs.sendMessage(tab.id, { type: "swdi:read-up-to-here" });
+  });
+
+  // Everything below the click is now unread, so the count fell below the full total,
+  // but the paragraphs above the click stay read.
+  await expect.poll(async () => Object.keys((await storedRecord()).read).length, { timeout: 10_000 }).toBeLessThan(total);
+  expect(Object.keys((await storedRecord()).read).length).toBeGreaterThan(0);
+
+  // No read marker survives below where the reader clicked.
+  const deepestReadTop = await page.evaluate(() =>
+    Math.max(...[...document.querySelectorAll(".swdi-read")].map((el) => el.getBoundingClientRect().top + window.scrollY)),
+  );
+  expect(deepestReadTop).toBeLessThanOrEqual(clickY + 3);
 
   await page.close();
 });

@@ -6,9 +6,13 @@ export const READING_WPM      = 260;
 export const READ_DWELL_MIN_MS = 2_000;
 export const READ_DWELL_MAX_MS = 60_000;
 
-/** How long a paragraph must sit in view before it counts as read: its own reading time, bounded. */
-export function readThresholdMs(words: number): number {
-  const readingMs = (words / READING_WPM) * 60_000;
+/**
+ * How long a paragraph must sit in view before it counts as read: its own reading time
+ * at the reader's words-per-minute, bounded. A junk `wpm` stays harmless because the
+ * result is clamped (0 or negative give the max wait, a huge value the min).
+ */
+export function readThresholdMs(words: number, wpm: number = READING_WPM): number {
+  const readingMs = (words / wpm) * 60_000;
 
   return Math.min(READ_DWELL_MAX_MS, Math.max(READ_DWELL_MIN_MS, readingMs));
 }

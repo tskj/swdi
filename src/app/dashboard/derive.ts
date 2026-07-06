@@ -83,12 +83,15 @@ export function matchAuthors(registry: Registry, pages: PageStats[]): AuthorMatc
   return matches.sort((a, b) => b.paragraphsRead - a.paragraphsRead);
 }
 
-export type AuthorEngagement = { entry: RegistryEntry; dwellMs: number; pagesRead: number };
+export type AuthorEngagement = { entry: RegistryEntry; words: number; dwellMs: number; pagesRead: number };
 
 /**
  * Reading weight per registry author, optionally restricted to a month ("2026-07").
- * Weight is dwell time on read paragraphs, the same engagement measure everything
- * else uses; authors with no reading in the window drop out.
+ * Weight is the word count of the paragraphs actually read: word count is the stable,
+ * reading-speed-independent measure of how much you read (dwell would vary with the WPM
+ * setting and its own cap). A read still has to carry real dwell to count, so vouched or
+ * backfilled reading (dwellMs 0) is excluded. dwellMs rides along for display; authors
+ * with no read words in the window drop out.
  */
 export function authorEngagement(registry: Registry, pages: PageStats[], monthPrefix: string | null): AuthorEngagement[] {
   const engaged: AuthorEngagement[] = [];
@@ -96,20 +99,29 @@ export function authorEngagement(registry: Registry, pages: PageStats[], monthPr
   for (const entry of registry.entries) {
     const mine = pages.filter((page) => entry.sites.some((site) => urlUnderSite(page.record.url, site)));
 
+    let words     = 0;
     let dwellMs   = 0;
     let pagesRead = 0;
     for (const page of mine) {
-      const reads = Object.values(page.record.read).filter((r) => monthPrefix === null || r.at.startsWith(monthPrefix));
-      if (reads.length === 0) continue;
+      const wordOf = new Map(page.record.outline.map((e) => [e.h, e.w]));
 
-      pagesRead += 1;
-      dwellMs   += reads.reduce((sum, r) => sum + r.dwellMs, 0);
+      let readHere = false;
+      for (const [hash, r] of Object.entries(page.record.read)) {
+        if (monthPrefix !== null && !r.at.startsWith(monthPrefix)) continue;
+        if (r.dwellMs <= 0) continue; // read, but vouched rather than dwelled: no donation weight
+
+        words   += r.words || wordOf.get(hash) || 0; // stamped at read time; the outline is the fallback for 0 (records from before words were tracked)
+        dwellMs += r.dwellMs;
+        readHere = true;
+      }
+
+      if (readHere) pagesRead += 1;
     }
 
-    if (dwellMs > 0) engaged.push({ entry, dwellMs, pagesRead });
+    if (words > 0) engaged.push({ entry, words, dwellMs, pagesRead });
   }
 
-  return engaged.sort((a, b) => b.dwellMs - a.dwellMs);
+  return engaged.sort((a, b) => b.words - a.words);
 }
 
 // A bare prefix test would let "https://a.co" claim "https://a.com/..." and
