@@ -169,6 +169,22 @@ button:disabled:hover { background: transparent; }
   margin: 12px 0;
 }
 
+#resume-hint { margin: 0; }
+
+.gap-nav {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.gap-nav span { flex: 1; }
+
+.gap-arrow {
+  flex: none;
+  width: auto;
+  padding: 4px 12px;
+}
+
 /* Squircle corners where the platform has them (Chromium 139+); circular elsewhere. */
 @supports (corner-shape: squircle) {
   button { corner-shape: superellipse(2); border-radius: 12px; }

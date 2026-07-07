@@ -19,7 +19,7 @@ import {
   readUpToHereMessageSchema,
   setBackfillMessageSchema,
   scrollFurthestMessageSchema,
-  scrollNextGapMessageSchema,
+  scrollGapMessageSchema,
   setOverlayMessageSchema,
   setPagePausedMessageSchema,
   setSitePausedMessageSchema,
@@ -53,8 +53,9 @@ type TrackingState = {
   read:    number;
   changed: number;
   overlay: boolean;
-  canResume:    boolean; // a furthest point exists to continue from
-  hasGapBehind: boolean; // an unread stretch sits before that furthest point
+  canResume:  boolean; // a furthest point exists to continue from
+  canGapUp:   boolean; // a skipped stretch sits before the current one (arrow up)
+  canGapDown: boolean; // a skipped stretch sits after the current one (arrow down)
   badges:  { read: number; reading: number };
 };
 
@@ -65,7 +66,7 @@ type Phase =
   | { phase: "starting" }
   | { phase: "paused";     host: string }
   | { phase: "unsuitable"; host: string }
-  | { phase: "tracking";   host: string; getState: () => TrackingState; setOverlay: (value: boolean) => void; markReadThisFar: (pageY: number) => Promise<void>; scrollFurthest: () => void; scrollNextGap: () => void };
+  | { phase: "tracking";   host: string; getState: () => TrackingState; setOverlay: (value: boolean) => void; markReadThisFar: (pageY: number) => Promise<void>; scrollFurthest: () => void; scrollGap: (up: boolean) => { canUp: boolean; canDown: boolean } };
 
 let current: Phase = { phase: "starting" };
 
@@ -131,9 +132,10 @@ chrome.runtime.onMessage.addListener((message: unknown, _sender, sendResponse) =
     return;
   }
 
-  if (scrollNextGapMessageSchema.safeParse(message).success) {
-    if (current.phase === "tracking") current.scrollNextGap();
-    sendResponse({ ok: current.phase === "tracking" });
+  const gapMsg = scrollGapMessageSchema.safeParse(message);
+  if (gapMsg.success) {
+    if (current.phase === "tracking") sendResponse(current.scrollGap(gapMsg.data.up));
+    else                              sendResponse({ canUp: false, canDown: false });
   }
 });
 
@@ -344,49 +346,60 @@ async function main() {
     if (incomingIdx > currentIdx) record.furthestReadHash = hash;
   }
 
-  let resumeCursor = -1;
+  // Paragraph index of the skipped spot the arrows last moved to (-1 = none yet), a
+  // document position so it survives the gap list shrinking as gaps get read.
+  let gapCursor = -1;
 
   function furthestIndex(): number {
     return record.furthestReadHash === null ? -1 : indexOfHash.get(record.furthestReadHash) ?? -1;
   }
 
-  // The first paragraph of the next unread run (a "gap") that sits BEFORE the furthest
-  // point reached, i.e. a stretch the reader skipped. Searches [fromIdx, beforeIdx); -1 if none.
-  function nextSkippedGap(fromIdx: number, beforeIdx: number): number {
-    for (let i = Math.max(0, fromIdx); i < beforeIdx; i++) {
+  // First paragraph of each unread run (a "gap") that sits BEFORE the furthest point
+  // reached, i.e. every stretch the reader skipped, in document order.
+  function skippedGapStarts(): number[] {
+    const before = furthestIndex();
+    if (before <= 0) return [];
+
+    const starts: number[] = [];
+    for (let i = 0; i < before; i++) {
       const p = paragraphs[i];
       if (p === undefined || p.hash in record.read) continue;
 
       const prev = i === 0 ? undefined : paragraphs[i - 1];
-      if (prev === undefined || prev.hash in record.read) return i;
+      if (prev === undefined || prev.hash in record.read) starts.push(i);
     }
 
-    return -1;
+    return starts;
   }
 
-  function gapBehindFurthest(): boolean {
-    const before = furthestIndex();
-    return before > 0 && nextSkippedGap(0, before) !== -1;
+  // Which arrows have somewhere to go: is there a skipped spot before / after the cursor?
+  function gapNav(): { canUp: boolean; canDown: boolean } {
+    const gaps = skippedGapStarts();
+    return { canUp: gaps.some((g) => g < gapCursor), canDown: gaps.some((g) => g > gapCursor) };
   }
 
-  // Popup "Continue where you left off": jump to the furthest paragraph reached.
+  // Popup "Continue where I left off": jump all the way down to the furthest paragraph reached.
   function scrollFurthest() {
     const idx = furthestIndex();
     if (idx >= 0) paragraphs[idx]?.el.scrollIntoView({ behavior: "smooth", block: "center" });
   }
 
-  // Popup "Go back to a spot you skipped": step through the gaps before the furthest
-  // point, wrapping around, landing with the last-read paragraph centered for context.
-  function scrollNextGap() {
-    const before = furthestIndex();
-    if (before <= 0) return;
+  // Popup up/down arrows: step to the previous or next skipped stretch, clamped at the
+  // ends (a disabled arrow can't be clicked), landing with the last-read paragraph
+  // centered for context. Returns the fresh arrow availability for the popup to apply.
+  function scrollGap(up: boolean): { canUp: boolean; canDown: boolean } {
+    const gaps = skippedGapStarts();
 
-    let idx = nextSkippedGap(resumeCursor + 1, before);
-    if (idx === -1) idx = nextSkippedGap(0, before); // wrap to the first gap
-    if (idx === -1) return;
+    let target: number | undefined;
+    if (up) for (const g of gaps) { if (g < gapCursor) target = g; } // last gap before the cursor
+    else    target = gaps.find((g) => g > gapCursor);                // first gap after the cursor
 
-    resumeCursor = idx;
-    paragraphs[Math.max(0, idx - 1)]?.el.scrollIntoView({ behavior: "smooth", block: "center" });
+    if (target !== undefined) {
+      gapCursor = target;
+      paragraphs[Math.max(0, target - 1)]?.el.scrollIntoView({ behavior: "smooth", block: "center" });
+    }
+
+    return gapNav();
   }
 
   // ---- link badges -----------------------------------------------------------
@@ -485,14 +498,16 @@ async function main() {
 
     getState: () => {
       const summary = summarize(record);
+      const nav     = gapNav();
       return {
         title:   record.title,
         total:   summary.total,
         read:    summary.read,
         changed: changed.size,
         overlay: settings.overlay,
-        canResume:    furthestIndex() >= 0, // furthest paragraph still present on this page
-        hasGapBehind: gapBehindFurthest(),
+        canResume:  furthestIndex() >= 0, // furthest paragraph still present on this page
+        canGapUp:   nav.canUp,
+        canGapDown: nav.canDown,
         badges:  linkReadCounts(),
       };
     },
@@ -505,7 +520,7 @@ async function main() {
 
     markReadThisFar,
     scrollFurthest,
-    scrollNextGap,
+    scrollGap,
   };
 
   // The visit itself (outline, sightings, title) is worth persisting even if nothing gets read.

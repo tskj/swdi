@@ -19,8 +19,13 @@
       <p id="changed" hidden></p>
       <p id="links" hidden></p>
       <div id="resume-actions">
-        <button id="resume-furthest">Continue where you left off</button>
-        <button id="resume-gap" class="quiet">Go back to a spot you skipped</button>
+        <div class="gap-nav">
+          <span>Spots I skipped</span>
+          <button type="button" id="gap-down" class="quiet gap-arrow" title="Next skipped spot" aria-label="Next skipped spot">&darr;</button>
+          <button type="button" id="gap-up" class="quiet gap-arrow" title="Previous skipped spot" aria-label="Previous skipped spot">&uarr;</button>
+        </div>
+        <button id="resume-furthest">Continue where I left off</button>
+        <p id="resume-hint" class="hint">The arrows step through spots I skipped; Continue jumps to the furthest I've read.</p>
       </div>
       <div class="marker-toggle-row">
         <label class="row marker-label">

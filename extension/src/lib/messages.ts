@@ -44,9 +44,13 @@ export const scrollFurthestMessageSchema = z.object({
   type: z.literal("swdi:scroll-furthest"),
 });
 
-export const scrollNextGapMessageSchema = z.object({
-  type: z.literal("swdi:scroll-next-gap"),
+export const scrollGapMessageSchema = z.object({
+  type: z.literal("swdi:scroll-gap"),
+  up:   z.boolean(), // step to the previous skipped spot (up) or the next one (down)
 });
+
+// The reply to a scroll-gap step: which arrows still have somewhere to go.
+export const gapNavSchema = z.object({ canUp: z.boolean(), canDown: z.boolean() });
 
 export const setBackfillMessageSchema = z.object({
   type:  z.literal("swdi:set-backfill"),
@@ -76,8 +80,9 @@ export const popupStateSchema = z.discriminatedUnion("phase", [
     read:    z.number(),
     changed: z.number(),
     overlay: z.boolean(),
-    canResume:    z.boolean(),
-    hasGapBehind: z.boolean(),
+    canResume:  z.boolean(),
+    canGapUp:   z.boolean(),
+    canGapDown: z.boolean(),
     badges:  z.object({ read: z.number(), reading: z.number() }),
   }),
   z.object({ phase: z.literal("unsuitable"), host: z.string(), hostPaused: z.boolean(), pagePaused: z.boolean() }),

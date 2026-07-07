@@ -1,5 +1,5 @@
 import { ensure, generateSyncSecret, deriveSyncKeys, nowIso } from "@swdi/shared";
-import { PopupState, popupStateSchema, syncResultSchema } from "../lib/messages";
+import { PopupState, gapNavSchema, popupStateSchema, syncResultSchema } from "../lib/messages";
 import { exportAll, loadSettings, loadSyncMeta, saveSettings, updateSettings } from "../lib/storage";
 
 // Every handler is wired exactly once at startup; re-renders only change visibility
@@ -80,7 +80,8 @@ function renderPage(state: PopupState) {
   // The resume buttons always show; they disable when there is nothing to do (no
   // furthest point reached yet, or no skipped stretch behind it).
   el<HTMLButtonElement>("resume-furthest").disabled = !state.canResume;
-  el<HTMLButtonElement>("resume-gap").disabled      = !state.hasGapBehind;
+  el<HTMLButtonElement>("gap-up").disabled   = !state.canGapUp;
+  el<HTMLButtonElement>("gap-down").disabled = !state.canGapDown;
 
   if (state.changed > 0) {
     const changed = el("changed");
@@ -130,8 +131,12 @@ function wirePageHandlers(state: PopupState, tabId: number) {
     void chrome.tabs.sendMessage(tabId, { type: "swdi:scroll-furthest" });
   });
 
-  el("resume-gap").addEventListener("click", () => {
-    void chrome.tabs.sendMessage(tabId, { type: "swdi:scroll-next-gap" });
+  el("gap-up").addEventListener("click", async () => {
+    applyGapNav(await chrome.tabs.sendMessage(tabId, { type: "swdi:scroll-gap", up: true }).catch(() => null));
+  });
+
+  el("gap-down").addEventListener("click", async () => {
+    applyGapNav(await chrome.tabs.sendMessage(tabId, { type: "swdi:scroll-gap", up: false }).catch(() => null));
   });
 
   el<HTMLInputElement>("overlay").addEventListener("change", (event) => {
@@ -196,6 +201,16 @@ function wireNav() {
     main.hidden     = toSettings;
     btn.textContent = toSettings ? "Back" : "Settings";
   });
+}
+
+// Reflect the arrow availability a scroll-gap step returns: disable whichever direction
+// now has nowhere to go.
+function applyGapNav(raw: unknown) {
+  const nav = gapNavSchema.safeParse(raw);
+  if (!nav.success) return;
+
+  el<HTMLButtonElement>("gap-up").disabled   = !nav.data.canUp;
+  el<HTMLButtonElement>("gap-down").disabled = !nav.data.canDown;
 }
 
 function wireMarkersInfo() {
