@@ -19,12 +19,12 @@ import { csR, squircle, superellipse3 } from "@/lib/squircle";
 import { AuthorEngagement, PageStats, authorEngagement, currentMonth, formatDuration, formatMonth, pluralize } from "./derive";
 
 // The donation loop: one monthly amount, split in proportion to your reading,
-// reviewed and adjusted by you, then paid down as a one-click-per-author list. SWDI
-// never touches the money; each Pay button opens the author's own channel (with the
-// amount prefilled where the provider supports it) and ticks the line off for you.
-// Budget and the ask answer live in the plaintext donation doc server-side;
-// settlements name the authors you read, so they travel inside the encrypted blob
-// with the reading they derive from.
+// reviewed and adjusted by you, then paid down author by author. Each link opens the
+// author's own channel (with the amount prefilled where the provider supports it);
+// the reader marks the line paid, because only they know whether money moved. SWDI
+// never touches the money. Budget and the ask answer live in the plaintext donation
+// doc server-side; settlements name the authors you read, so they travel inside the
+// encrypted blob with the reading they derive from.
 
 export function BudgetSection(props: {
   pages:       PageStats[];
@@ -245,9 +245,10 @@ function Proposal(props: {
   );
 }
 
-// The channel a Pay button opens, most-preferred first. PayPal donate links accept a
-// prefilled amount; the others open at the author's page and the reader types it.
-const CHANNEL_PRIORITY = ["patreon", "github-sponsors", "kofi", "buymeacoffee", "paypal", "stripe", "liberapay", "custom"];
+// The channel a pay link opens, most-preferred first: channels that can take a
+// one-off of an arbitrary amount lead, memberships (Patreon, GitHub Sponsors,
+// Liberapay) trail, since "pay 83 kr" is a promise a subscription page cannot keep.
+const CHANNEL_PRIORITY = ["paypal", "kofi", "buymeacoffee", "stripe", "github-sponsors", "patreon", "liberapay", "custom"];
 
 const CURRENCY_CODES: Record<string, string> = { kr: "NOK", "$": "USD", "€": "EUR", "£": "GBP" };
 
@@ -261,18 +262,22 @@ const PAYMENT_LABELS: Record<string, string> = {
   liberapay:         "Liberapay",
 };
 
-function payTarget(entry: RegistryEntry | undefined, minor: number, currency: string): { url: string; label: string } | null {
+// `prefilled` is whether the channel will present the amount by itself; only PayPal
+// donate links can. Everywhere else the reader types it, and the link copy says so.
+function payTarget(entry: RegistryEntry | undefined, minor: number, currency: string): { url: string; label: string; prefilled: boolean } | null {
   const usable = (entry?.payment ?? []).filter((m) => m.kind !== "bitcoin");
   const best   = [...usable].sort((a, b) => CHANNEL_PRIORITY.indexOf(a.kind) - CHANNEL_PRIORITY.indexOf(b.kind))[0];
   if (best === undefined) return null;
 
-  let url = best.url;
+  let url       = best.url;
+  let prefilled = false;
   if (best.kind === "paypal" && url.includes("/donate")) {
     const code = CURRENCY_CODES[currency];
     url += `${url.includes("?") ? "&" : "?"}amount=${(minor / 100).toFixed(2)}${code === undefined ? "" : `&currency_code=${code}`}`;
+    prefilled = true;
   }
 
-  return { url, label: PAYMENT_LABELS[best.kind] ?? "Open" };
+  return { url, label: PAYMENT_LABELS[best.kind] ?? "Open", prefilled };
 }
 
 function PayList(props: {
@@ -287,8 +292,8 @@ function PayList(props: {
   return (
     <div className="mt-4 border border-(--line) bg-(--card) px-6 py-5" style={{ borderRadius: csR(12, 28), ...superellipse3 }}>
       <p className="text-[15px] text-(--ink-soft)">
-        {formatMonth(props.settlement.month)}: each Pay opens the author&apos;s own channel
-        and ticks the line off. {paid} of {props.settlement.lines.length} done.
+        {formatMonth(props.settlement.month)}: each link opens the author&apos;s own channel.
+        Mark the line paid once you have sent it. {paid} of {props.settlement.lines.length} done.
       </p>
 
       <ul className="mt-4 space-y-4">
@@ -356,6 +361,8 @@ function PayLine(props: {
   const entry  = props.registry.entries.find((e) => e.name === (line.key === SWDI_ALLOCATION_KEY ? "SWDI" : line.key));
   const target = payTarget(entry, line.minor, props.currency);
 
+  const amount = `${Math.round(line.minor / 100)} ${props.currency}`;
+
   return (
     <li className="flex flex-wrap items-center gap-3">
       <span className={`min-w-0 flex-1 truncate ${line.paid ? "line-through opacity-60" : ""}`}>{line.name}</span>
@@ -373,16 +380,21 @@ function PayLine(props: {
           href={target.url}
           target="_blank"
           rel="noreferrer"
-          onClick={() => props.onPaid(line.key, true)}
         >
-          Pay {Math.round(line.minor / 100)} {props.currency} on {target.label}
+          {target.prefilled ? `Pay ${amount} on ${target.label}` : `Open ${target.label}, suggested ${amount}`}
         </a>
       )}
 
       {!line.paid && target === null && (
         <span className="shrink-0 font-sans text-[12px] text-(--ink-soft)">
-          {Math.round(line.minor / 100)} {props.currency} · no channel yet
+          {amount} · no channel yet
         </span>
+      )}
+
+      {!line.paid && (
+        <button className="shrink-0 font-sans text-[12px] text-(--ink-soft) underline underline-offset-4" onClick={() => props.onPaid(line.key, true)}>
+          Mark paid
+        </button>
       )}
     </li>
   );

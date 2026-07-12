@@ -26,15 +26,13 @@ Months are computed on the reader's wall clock (`currentMonth`/`monthOf` in
 `src/app/dashboard/derive.ts`), and reads bucket by the same local months so proposals
 and settles agree near a boundary. The e2e drives the rollover with a faked clock.
 
-### 3. Pay marks a line paid before any money moves [HIGH]
-Clicking Pay fires `onPaid(key, true)` on the link click itself
-(`src/app/dashboard/budget-section.tsx:279`). Land on Patreon, find no way to send the amount,
-close the tab, and the dashboard shows it struck through as done. Undo exists but the default
-state lies. Related: Patreon and GitHub Sponsors rank first (`:214`) but cannot take an
-arbitrary one-off amount, so "Pay 83kr on Patreon" is a promise the channel cannot keep (only
-PayPal's donate form prefills, `:234-237`).
-Fix: mark paid on return, or make ticking explicit; rank one-off-capable channels first, or make
-the button copy honest ("Open Patreon, suggested 83kr").
+### 3. Pay marks a line paid before any money moves [HIGH] — DONE 2026-07-12
+Ticking is explicit now: the link only opens the channel, and every unpaid line carries
+a quiet "Mark paid" (chosen over mark-on-return, which still guesses; this also lets a
+channel-less line, like SWDI's own, be ticked at all). One-off-capable channels rank
+first (PayPal, Ko-fi, Buy Me a Coffee, Stripe) and memberships trail; the copy follows
+the channel's real capability: "Pay 83 kr on PayPal" only when the amount prefills,
+"Open Patreon, suggested 83 kr" otherwise.
 
 ## Tier 2 — repairs the reading model we just shipped, and stops data loss
 

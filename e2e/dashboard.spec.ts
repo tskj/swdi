@@ -70,14 +70,29 @@ test("the donation loop: connect, ask, budget, propose, pay, persist", async ({ 
   await expect(ui.getByText("Proposed from your reading this month")).toBeVisible();
   await expect(ui.getByText("your 1% share")).toBeVisible();
 
-  // Start paying: David Chapman leads the split, and his channel is Patreon.
+  // Settlement edits ride the encrypted blob as async pushes; each step below waits
+  // for its PUT to land so a reload cannot abort a write still in flight.
+  const isSyncPut = (r: { url(): string; request(): { method(): string } }) =>
+    r.url().includes("/api/sync/") && r.request().method() === "PUT";
+
+  // Start paying: David Chapman leads the split. Patreon cannot take a one-off
+  // amount, so the link only opens it, and following it does NOT tick the line;
+  // the reader marks it paid themselves once money has actually moved.
+  const settlePush = ui.waitForResponse(isSyncPut);
   await ui.getByRole("button", { name: "Start paying" }).click();
-  const pay = ui.getByRole("link", { name: /^Pay \d+ kr on Patreon$/ });
+  await settlePush;
+
+  const pay = ui.getByRole("link", { name: /^Open Patreon, suggested \d+ kr$/ });
   await expect(pay).toBeVisible();
 
   const [popup] = await Promise.all([ui.waitForEvent("popup"), pay.click()]);
   await popup.close();
+  await expect(ui.getByText("0 of 3 done")).toBeVisible();
+
+  const paidPush = ui.waitForResponse(isSyncPut);
+  await ui.getByRole("listitem").filter({ hasText: "David Chapman" }).getByRole("button", { name: "Mark paid" }).click();
   await expect(ui.getByText("1 of 3 done")).toBeVisible();
+  await paidPush;
 
   // Everything lives server-side now: a fresh connect finds the settled month again.
   await ui.reload();
@@ -93,11 +108,11 @@ test("the donation loop: connect, ask, budget, propose, pay, persist", async ({ 
 
   await connect();
   await expect(ui.getByText("is unfinished: 2 of 3 still unpaid")).toBeVisible();
-  await expect(ui.getByRole("link", { name: /^Pay \d+ kr on Ko-fi$/ })).toBeVisible();
+  await expect(ui.getByRole("link", { name: /^Open Ko-fi, suggested \d+ kr$/ })).toBeVisible();
   await expect(ui.getByText("nothing read this month yet")).toBeVisible();
 
   // Forget writes the month off, and the removal sticks across a fresh connect.
-  const forgetPush = ui.waitForResponse((r) => r.url().includes("/api/sync/") && r.request().method() === "PUT");
+  const forgetPush = ui.waitForResponse(isSyncPut);
   await ui.getByRole("button", { name: "Forget this month" }).click();
   await forgetPush;
 
