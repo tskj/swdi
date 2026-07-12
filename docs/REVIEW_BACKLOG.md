@@ -120,14 +120,13 @@ drop caps, needs the author's call.
 
 ## Tier 5 — server hardening (before the domain is shared widely)
 
-### 18. Rate limiter is trivially bypassed [HIGH]
-`clientIp` reads the leftmost `X-Forwarded-For` (`src/lib/rate-limit.ts:37`), which is
-client-controlled; spoof a new value per request and never get limited. It is the only brake on
-online key-guessing and on storage abuse (#19). Spoofed values also push `buckets.size` past
-`MAX_BUCKETS` and trigger `buckets.clear()`, resetting everyone.
-Fix: use the rightmost / trusted-hop XFF (or Railway's platform client-IP header); evict per
-bucket by age instead of clearing the whole map. Update KNOWN_ISSUES (documents the in-memory
-weakness but not this bypass).
+### 18. Rate limiter is trivially bypassed [HIGH] — DONE 2026-07-12
+`clientIp` takes the rightmost `X-Forwarded-For` entry (the one Railway's edge
+appended); spoofed left-hand entries are ignored. Overflow no longer clears the map:
+expired buckets are evicted, and when every bucket is live, new keys pass untracked so
+existing counters are never sacrificed (evicting to make room would let a key-minting
+flood forget victims' counters). Unit-tested (vitest gained the `@/` alias and a
+server-only stub for this); KNOWN_ISSUES documents the one-trusted-hop assumption.
 
 ### 19. Unauthenticated, unmetered 8MB-per-id storage [HIGH]
 Anyone can `PUT /api/sync/<any 32-hex>` with `expectedVersion: 0`, an invented bearer token, and

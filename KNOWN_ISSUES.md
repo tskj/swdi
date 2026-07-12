@@ -18,6 +18,16 @@ The cure is updating the extension.
 everyone, and a second replica would double every allowance. Fine at one Railway
 instance; move the buckets to Postgres (or add a shared store) before scaling out.
 
+Two more edges of the same limiter, deliberate at this tier:
+
+- `clientIp` trusts the RIGHTMOST `X-Forwarded-For` entry, which assumes exactly one
+  trusted proxy hop (Railway's edge) appending it. Putting another proxy or CDN in
+  front changes which entry is trustworthy; revisit `clientIp` before doing that.
+- Per-IP limiting cannot hold against an attacker with many real addresses: each fresh
+  address is a fresh allowance, and once the bucket map is full of live entries, new
+  identities pass untracked (existing counters are never sacrificed to make room). The
+  128-bit sync id space is what keeps enumeration infeasible regardless.
+
 ## Backfilled reading carries no donation weight
 
 A page vouched for via backfill (`assumedReadAt`) counts as read everywhere visible, but
