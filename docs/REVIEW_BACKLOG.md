@@ -36,15 +36,13 @@ the channel's real capability: "Pay 83 kr on PayPal" only when the amount prefil
 
 ## Tier 2 — repairs the reading model we just shipped, and stops data loss
 
-### 4. Finishing an article usually does not commit the tail [HIGH]
-The bottom-commit rule keys on document bottom (`extension/src/content.ts:322`
-`scrollY + innerHeight >= scrollHeight`), but nearly every article has a footer / comments /
-related-posts below the prose. A reader who stops at the last paragraph and closes the tab never
-reaches document bottom, so the final screenful never commits. Directly weakens the scroll-out
-model.
-Fix (preferred, faithful to intent): define the terminal region against the article container
-bottom, not the whole document. Preserves "close mid-page, lose the in-view tail, re-read it"
-while fixing the footer case.
+### 4. Finishing an article usually does not commit the tail [HIGH] — DONE 2026-07-12
+The terminal rule (`articleEndReached` in `extension/src/content.ts`) now keys to the
+article's own geometry: the end is reached when the last paragraph that still has
+geometry has its bottom inside the viewport. Anchoring to the last tracked paragraph
+(rather than the container) also ignores trailing in-article chrome like next-page
+navs. Footers and comment threads below the prose no longer push the finish line away;
+e2e covers stopping at the last paragraph well short of document bottom.
 
 ### 5. "I've read this far" can wipe a page from a stray click, no undo [HIGH]
 Clears-and-tombstones everything below the click (`extension/src/content.ts:481-506`),
@@ -63,18 +61,19 @@ the same misclick on the next page is not even undoable.
 Fix: undo reverts the vouch (clear `assumedReadAt` / restore pre-vouch record), never deletes;
 track vouch-vs-preexisting in the record, not session memory.
 
-### 7. Inner-scroll layouts void the parked-page protection [MEDIUM]
-When the article scrolls inside an `overflow:auto` pane (common docs themes),
-`scrollY + innerHeight >= scrollHeight` is permanently true (`extension/src/content.ts:322`), so
-every visible paragraph commits after mere dwell: exactly the AFK case the design promises not to
-count. Same root cause as #4 (document-geometry assumption).
+### 7. Inner-scroll layouts void the parked-page protection [MEDIUM] — DONE 2026-07-12
+Same fix as #4: the anchor paragraph's `getBoundingClientRect` is viewport-relative and
+unclipped, so an article inside an `overflow:auto` pane is only "at the end" when the
+pane is actually scrolled there. e2e covers a 100vh pane: parked paragraphs never
+commit, scrolling the pane to the article's end still does.
 
-### 8. SPA navigation causes cross-page false reads [MEDIUM]
-Detached paragraphs keep `intersecting: true` (no final IO entry) and commit under the old URL
-when `atBottom` next holds; the new page is never tracked
-(`extension/src/content.ts:325-327`).
-Fix: guard commit with `el.isConnected`; optionally detect URL change to end the session. Full
-SPA support is out of scope (don't pre-design), but the false-read guard is cheap.
+### 8. SPA navigation causes cross-page false reads [MEDIUM] — DONE 2026-07-12
+Both commit paths now require `isConnected`: the terminal loop, and the scroll-out
+rule, where the e2e revealed modern Chromium DOES fire a final not-intersecting entry
+on removal, so detached paragraphs were committing through scroll-out, not the
+terminal path as diagnosed. A detached anchor also cannot satisfy `articleEndReached`.
+URL-change session detection deliberately not built (don't pre-design); the new page
+still goes untracked until reload, which the popup copy owns up to (see #9).
 
 ## Tier 3 — first-run and onboarding dead ends
 
@@ -219,8 +218,8 @@ silently breaks the trust model. API-level tests, no browser needed.
   (`content.css:25`).
 - **"Last synced" shows UTC** [LOW]: `popup.ts:327-329` slices the ISO string; format in local
   time.
-- **`display:none` paragraphs get marked read by "read this far"** [LOW]: collapsed accordions
-  report rect top 0, so `top <= pageY` holds (`content.ts:486-490`). Skip zero-height rects.
+- **`display:none` paragraphs get marked read by "read this far"** [LOW] — DONE 2026-07-12 with
+  #4: zero-size rects (collapsed or detached) are skipped; their state stays as it is.
 - **Native form controls are off-palette** [LOW]: Remember checkbox
   (`DashboardClient.tsx:213`) and currency select (`budget-section.tsx:105`) show the browser's
   blue accent; `globals.css` sets no `accent-color`. One line fixes it.

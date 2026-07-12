@@ -35,9 +35,10 @@ const IO_THRESHOLDS = [0, 0.1, 0.25, 0.5, 0.75, 1];
 const TICK_MS    = 1_000;
 const PERSIST_MS = 2_000;
 
-// How close to the very bottom of the page counts as "reached the end", where the last
-// paragraphs (which never scroll out of view) are allowed to commit.
-const BOTTOM_SLACK_PX = 4;
+// How much of the article's end may still hang below the viewport and count as
+// "reached the end", where the last paragraphs (which never scroll out of view) are
+// allowed to commit.
+const END_SLACK_PX = 4;
 
 type Tracked = {
   p:            Paragraph;
@@ -287,8 +288,11 @@ async function main() {
       // A paragraph commits as read when it leaves view AFTER being watched long enough.
       // A fast-scrolled skim never accrues the time, and a section parked on screen while
       // the reader is away never commits until they actually move on. Leaving in scroll
-      // order also fills the markers top-to-bottom for free.
-      if (t.intersecting && !nowIntersecting && t.accruedMs >= t.thresholdMs) markRead(t);
+      // order also fills the markers top-to-bottom for free. Leaving the DOCUMENT is not
+      // leaving view: a SPA swapping the article out (which surfaces here as a final
+      // not-intersecting entry, or as no entry at all in engines that skip detached
+      // targets) must not commit reads under the old URL.
+      if (t.intersecting && !nowIntersecting && t.p.el.isConnected && t.accruedMs >= t.thresholdMs) markRead(t);
 
       t.intersecting = nowIntersecting;
     }
@@ -298,11 +302,32 @@ async function main() {
     if (!t.read) io.observe(t.p.el);
   }
 
+  // "Reached the end" keys to the article's own geometry, never the document's:
+  // footers and comment threads below the prose must not push the finish line out of
+  // reach (a reader who stops at the last paragraph has finished), and an article in
+  // an inner scroll pane is not "at the bottom" merely because the window has nowhere
+  // to scroll. The anchor is the last paragraph that still has geometry; detached
+  // (SPA-swapped) and collapsed paragraphs cannot anchor it, and with every paragraph
+  // gone there is no end to reach.
+  function articleEndReached(): boolean {
+    for (let i = paragraphs.length - 1; i >= 0; i--) {
+      const p = paragraphs[i];
+      if (p === undefined || !p.el.isConnected) continue;
+
+      const rect = p.el.getBoundingClientRect();
+      if (rect.width === 0 && rect.height === 0) continue;
+
+      return rect.bottom <= window.innerHeight + END_SLACK_PX;
+    }
+
+    return false;
+  }
+
   // Dwell accrues per tick with a clamped delta, never as an open wall-clock span:
   // an OS suspend or display sleep fires no visibility event, so an unbounded
   // now - since would count everything in view the instant the laptop wakes. Accrual
-  // only earns eligibility; committing happens on scroll-out (above) or at the page
-  // bottom (below), never from sitting still in the middle of a page.
+  // only earns eligibility; committing happens on scroll-out (above) or at the end of
+  // the article (below), never from sitting still in the middle of a page.
   let lastTickAt = nowMs();
 
   setInterval(() => {
@@ -313,17 +338,19 @@ async function main() {
     if (document.hidden) return;
 
     for (const t of tracked.values()) {
-      if (!t.read && t.intersecting && t.accruedMs < t.thresholdMs) t.accruedMs += delta;
+      if (!t.read && t.intersecting && t.p.el.isConnected && t.accruedMs < t.thresholdMs) t.accruedMs += delta;
     }
 
     // The final paragraphs never scroll out, and a short page never scrolls at all;
-    // reaching the bottom is the terminal equivalent, so eligible paragraphs still in
-    // view now commit, in document order.
-    const atBottom = window.scrollY + window.innerHeight >= document.documentElement.scrollHeight - BOTTOM_SLACK_PX;
-    if (!atBottom) return;
+    // bringing the end of the article into view is the terminal equivalent, so
+    // eligible paragraphs still in view commit now, in document order. The
+    // isConnected guard keeps a paragraph a SPA swap detached (which holds its stale
+    // intersection forever, since removal fires no observer entry) from committing
+    // under the old URL.
+    if (!articleEndReached()) return;
 
     for (const t of tracked.values()) {
-      if (!t.read && t.intersecting && t.accruedMs >= t.thresholdMs) markRead(t);
+      if (!t.read && t.intersecting && t.p.el.isConnected && t.accruedMs >= t.thresholdMs) markRead(t);
     }
   }, TICK_MS);
 
@@ -483,7 +510,13 @@ async function main() {
 
     let deepest: string | null = null;
     for (const t of tracked.values()) {
-      const top = t.p.el.getBoundingClientRect().top + window.scrollY;
+      // A collapsed or detached paragraph has no place on the page to compare with
+      // the click (its rect degenerates to 0,0, which would read as "above here" and
+      // mark it); its state stays as it is.
+      const rect = t.p.el.getBoundingClientRect();
+      if (rect.width === 0 && rect.height === 0) continue;
+
+      const top = rect.top + window.scrollY;
 
       if (top <= pageY) {
         if (!t.read) markRead(t);

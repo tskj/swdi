@@ -338,3 +338,95 @@ test("sync v2: a deletion tombstone holds through push, merge, and a fresh pull"
   });
   await popup.close();
 });
+
+test("stopping at the end of the article commits the tail, short of document bottom", async () => {
+  await worker.evaluate(() => chrome.storage.local.set({ "swdi:settings": { overlay: true, readingWpm: 100000 } }));
+  await worker.evaluate((key) => chrome.storage.local.remove(key), PAGE_KEY);
+
+  const page = await context.newPage();
+  await page.goto(PAGE_URL);
+  await expect.poll(async () => (await storedRecord())?.outline?.length ?? 0, { timeout: 15_000 }).toBeGreaterThan(10);
+
+  // Stop with the end of the article in view. The sidebar and comment chrome below
+  // keep this well short of the document's own bottom, which is the whole point.
+  const atDocumentBottom = await page.evaluate(() => {
+    const article = document.querySelector("article#article");
+    if (article === null) return null;
+
+    const bottom = article.getBoundingClientRect().bottom + window.scrollY;
+    window.scrollTo(0, bottom - window.innerHeight + 2);
+    return document.documentElement.scrollHeight - (window.scrollY + window.innerHeight) < 50;
+  });
+  expect(atDocumentBottom).toBe(false);
+
+  // The final paragraph never scrolls out, so only the terminal rule can commit it.
+  await expect.poll(async () => {
+    const record = await storedRecord();
+    const last   = record?.outline?.[record.outline.length - 1]?.h;
+    return last !== undefined && last in (record.read ?? {});
+  }, { timeout: 15_000 }).toBe(true);
+
+  await page.close();
+});
+
+test("an article in an inner scroll pane: parked paragraphs never commit, its end still does", async () => {
+  const INNER_URL = "https://inner-scroll.example/";
+  const INNER_KEY = `swdi:page:${INNER_URL}`;
+
+  await context.route("https://inner-scroll.example/**", (route) => {
+    const paras = Array.from({ length: 40 }, (_, i) =>
+      `<p>Paragraph number ${i} of the inner scroll fixture, with enough words in it to clear the minimum character bar for tracking.</p>`).join("");
+    void route.fulfill({
+      status:      200,
+      contentType: "text/html; charset=utf-8",
+      body: `<html><body style="margin:0"><main style="height:100vh; overflow:auto"><article>${paras}</article></main></body></html>`,
+    });
+  });
+
+  const innerRecord = () => worker.evaluate(async (key) => {
+    const got = await chrome.storage.local.get(key);
+    return got[key] ?? null;
+  }, INNER_KEY);
+
+  const page = await context.newPage();
+  await page.goto(INNER_URL);
+  await expect.poll(async () => (await innerRecord())?.outline?.length ?? 0, { timeout: 15_000 }).toBeGreaterThan(30);
+
+  // The window itself has nowhere to scroll, so the old document-bottom rule would
+  // hold permanently and commit these parked paragraphs after mere dwell.
+  await page.waitForTimeout(3_500);
+  expect(await page.locator(".swdi-read").count()).toBe(0);
+
+  // Scrolling the PANE to the end of the article is what finishes it.
+  await page.evaluate(() => {
+    const pane = document.querySelector("main");
+    if (pane !== null) pane.scrollTop = pane.scrollHeight;
+  });
+  await expect.poll(async () => {
+    const record = await innerRecord();
+    const last   = record?.outline?.[record.outline.length - 1]?.h;
+    return last !== undefined && last in (record.read ?? {});
+  }, { timeout: 15_000 }).toBe(true);
+
+  await page.close();
+});
+
+test("paragraphs detached by a SPA-style swap never commit", async () => {
+  await worker.evaluate((key) => chrome.storage.local.remove(key), PAGE_KEY);
+
+  const page = await context.newPage();
+  await page.goto(PAGE_URL);
+  await expect.poll(async () => (await storedRecord())?.outline?.length ?? 0, { timeout: 15_000 }).toBeGreaterThan(10);
+
+  // Accrue past the threshold with the opening screenful in view, then swap the
+  // article out. Removal fires no intersection entry, so the detached paragraphs
+  // keep their stale "in view" state forever; without the connectedness guards, the
+  // collapsed document reads as "end reached" and they all commit under this URL.
+  await page.waitForTimeout(2_500);
+  await page.evaluate(() => document.querySelector("article#article")?.remove());
+  await page.waitForTimeout(3_000);
+
+  expect(Object.keys((await storedRecord())?.read ?? {}).length).toBe(0);
+
+  await page.close();
+});
