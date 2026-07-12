@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { PageRecord, pageRecordSchema } from "./schema";
+import { settlementSchema } from "./donations";
 import { mergeRecords } from "./read-model";
 
 // Accountless end-to-end encrypted sync. One random secret, generated on the first
@@ -17,7 +18,11 @@ import { mergeRecords } from "./read-model";
 // The payload is versioned because old clients strip fields they do not know: a v1
 // client fed v2 data would silently drop the tombstones and resurrect deletions, so it
 // must refuse instead (its schema parse fails and sync reports unreadable data). v2
-// adds `deleted`, the page tombstones: url -> when the page was removed.
+// adds `deleted`, the page tombstones: url -> when the page was removed. v3 adds
+// `settlements`, month -> what was paid to whom: a settlement names the authors you
+// read, so it belongs under the encryption with the reading it derives from, never in
+// the plaintext donation doc. The extension carries settlements through untouched;
+// only the dashboard edits them.
 const syncPayloadV1Schema = z.object({
   v: z.literal(1),
   exportedAt: z.string(),
@@ -31,7 +36,15 @@ const syncPayloadV2Schema = z.object({
   deleted: z.record(z.string(), z.string()),
 });
 
-export const syncPayloadSchema = z.discriminatedUnion("v", [syncPayloadV1Schema, syncPayloadV2Schema]);
+const syncPayloadV3Schema = z.object({
+  v: z.literal(3),
+  exportedAt: z.string(),
+  pages: z.array(pageRecordSchema),
+  deleted: z.record(z.string(), z.string()),
+  settlements: z.record(z.string(), settlementSchema),
+});
+
+export const syncPayloadSchema = z.discriminatedUnion("v", [syncPayloadV1Schema, syncPayloadV2Schema, syncPayloadV3Schema]);
 
 // The server-side ceiling on one ciphertext blob. Clients must trim what they upload
 // to fit under it (the extension drops the oldest-visited pages from the sync payload,
@@ -50,7 +63,7 @@ export const syncPutRequestSchema = z.object({
   data: z.string().max(SYNC_DATA_MAX_CHARS),
 });
 
-export type SyncPayload    = z.infer<typeof syncPayloadV2Schema>;
+export type SyncPayload    = z.infer<typeof syncPayloadV3Schema>;
 export type AnySyncPayload = z.infer<typeof syncPayloadSchema>;
 export type SyncEnvelope   = z.infer<typeof syncEnvelopeSchema>;
 export type SyncPutRequest = z.infer<typeof syncPutRequestSchema>;
@@ -177,8 +190,10 @@ export async function decryptPayload(encKey: CryptoKey, iv: string, data: string
   const parsed = syncPayloadSchema.safeParse(json);
   if (!parsed.success) return null;
 
-  // Normalize to the current revision: a v1 blob simply has no tombstones yet.
-  if (parsed.data.v === 1) return { v: 2, exportedAt: parsed.data.exportedAt, pages: parsed.data.pages, deleted: {} };
+  // Normalize to the current revision: older blobs simply predate tombstones and
+  // settlements, so those start empty.
+  if (parsed.data.v === 1) return { v: 3, exportedAt: parsed.data.exportedAt, pages: parsed.data.pages, deleted: {},                  settlements: {} };
+  if (parsed.data.v === 2) return { v: 3, exportedAt: parsed.data.exportedAt, pages: parsed.data.pages, deleted: parsed.data.deleted, settlements: {} };
 
   return parsed.data;
 }

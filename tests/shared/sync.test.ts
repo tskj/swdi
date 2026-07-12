@@ -35,7 +35,7 @@ function page(url: string, partial: Partial<PageRecord> = {}): PageRecord {
 }
 
 function payload(pages: PageRecord[]): SyncPayload {
-  return { v: 2, exportedAt: "2026-07-04T00:00:00.000Z", pages, deleted: {} };
+  return { v: 3, exportedAt: "2026-07-04T00:00:00.000Z", pages, deleted: {}, settlements: {} };
 }
 
 describe("deriveSyncKeys", () => {
@@ -129,7 +129,7 @@ describe("encrypt/decrypt roundtrip", () => {
     expect(reopened).toEqual(big);
   });
 
-  it("opens a v1 blob and upgrades it to v2 with no tombstones", async () => {
+  it("opens a v1 blob and upgrades it: no tombstones, no settlements", async () => {
     const keys = await deriveSyncKeys(generateSyncSecret());
     if (keys === null) throw new Error("keys");
 
@@ -138,7 +138,39 @@ describe("encrypt/decrypt roundtrip", () => {
     const sealed   = await encryptPayload(keys.encKey, v1);
     const reopened = await decryptPayload(keys.encKey, sealed.iv, sealed.data);
 
-    expect(reopened).toEqual({ v: 2, exportedAt: v1.exportedAt, pages, deleted: {} });
+    expect(reopened).toEqual({ v: 3, exportedAt: v1.exportedAt, pages, deleted: {}, settlements: {} });
+  });
+
+  it("opens a v2 blob, keeping its tombstones and starting settlements empty", async () => {
+    const keys = await deriveSyncKeys(generateSyncSecret());
+    if (keys === null) throw new Error("keys");
+
+    const pages    = [page("https://example.com/a")];
+    const deleted  = { "https://example.com/b": "2026-07-01T00:00:00.000Z" };
+    const v2       = { v: 2 as const, exportedAt: "2026-07-04T00:00:00.000Z", pages, deleted };
+    const sealed   = await encryptPayload(keys.encKey, v2);
+    const reopened = await decryptPayload(keys.encKey, sealed.iv, sealed.data);
+
+    expect(reopened).toEqual({ v: 3, exportedAt: v2.exportedAt, pages, deleted, settlements: {} });
+  });
+
+  it("roundtrips settlements inside the encrypted payload", async () => {
+    const keys = await deriveSyncKeys(generateSyncSecret());
+    if (keys === null) throw new Error("keys");
+
+    const settled = {
+      ...payload([page("https://example.com/a")]),
+      settlements: {
+        "2026-07": {
+          month:     "2026-07",
+          settledAt: "2026-07-05T12:00:00.000Z",
+          lines:     [{ key: "a", name: "A", minor: 5_000, paid: true }],
+        },
+      },
+    };
+
+    const sealed = await encryptPayload(keys.encKey, settled);
+    expect(await decryptPayload(keys.encKey, sealed.iv, sealed.data)).toEqual(settled);
   });
 
   it("returns null for the wrong key and for tampered ciphertext", async () => {

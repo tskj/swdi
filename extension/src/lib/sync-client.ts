@@ -1,6 +1,7 @@
 import {
   PageRecord,
   SYNC_DATA_MAX_CHARS,
+  Settlements,
   SyncPayload,
   applyDeleted,
   decryptPayload,
@@ -61,7 +62,9 @@ export async function syncNow(): Promise<SyncResult> {
       const resolved = applyDeleted(pages, deleted);
       await saveTombstones(resolved.deleted);
 
-      const envelope = await sealUnderLimit(keys.encKey, resolved.pages, resolved.deleted);
+      // Settlements are the dashboard's data; the extension only carries the remote
+      // copy through so its own pushes never drop them.
+      const envelope = await sealUnderLimit(keys.encKey, resolved.pages, resolved.deleted, remote.payload?.settlements ?? {});
       if (envelope === null) return failure("your reading history exceeds the sync size limit");
 
       const response = await fetch(url, {
@@ -89,11 +92,11 @@ export async function syncNow(): Promise<SyncResult> {
  * ciphertext fits the server's cap. Local storage keeps everything; only the synced
  * copy shrinks. Null when even a single page will not fit.
  */
-async function sealUnderLimit(encKey: CryptoKey, pages: PageRecord[], deleted: Record<string, string>): Promise<{ iv: string; data: string } | null> {
+async function sealUnderLimit(encKey: CryptoKey, pages: PageRecord[], deleted: Record<string, string>, settlements: Settlements): Promise<{ iv: string; data: string } | null> {
   let candidate = [...pages].sort((a, b) => b.lastVisitAt.localeCompare(a.lastVisitAt));
 
   for (;;) {
-    const envelope = await encryptPayload(encKey, { v: 2, exportedAt: nowIso(), pages: candidate, deleted });
+    const envelope = await encryptPayload(encKey, { v: 3, exportedAt: nowIso(), pages: candidate, deleted, settlements });
     if (envelope.data.length <= SYNC_DATA_MAX_CHARS) return envelope;
     if (candidate.length <= 1) return null;
 

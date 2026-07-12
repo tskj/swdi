@@ -1,16 +1,19 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { z } from "zod";
 import {
   DonationDoc,
   DonationPatch,
   Registry,
+  SettlementPatch,
+  Settlements,
   ShareAnswer,
   SyncKeys,
   SyncPayload,
   applyDonationPatch,
+  applySettlementPatch,
   budgetSchema,
   decryptPayload,
   deriveSyncKeys,
@@ -21,6 +24,7 @@ import {
   syncEnvelopeSchema,
 } from "@swdi/shared";
 import { fetchDonationDoc, patchDonationDoc, putDonationDoc } from "./donations-client";
+import { adoptLegacySettlements, pushSettlementPatch } from "./settlements-client";
 import { csR, squircle, superellipse3 } from "@/lib/squircle";
 import { BudgetSection } from "./budget-section";
 import {
@@ -50,7 +54,7 @@ type Stage =
   | { stage: "locked";  error: string | null }
   | { stage: "loading" }
   | { stage: "empty" }
-  | { stage: "open";    keys: SyncKeys; pages: PageStats[]; registry: Registry | null; doc: DonationDoc };
+  | { stage: "open";    keys: SyncKeys; pages: PageStats[]; registry: Registry | null; doc: DonationDoc; settlements: Settlements };
 
 export function DashboardClient() {
   // Lazy initializers touch localStorage, which exists only in the browser; during
@@ -101,8 +105,9 @@ export function DashboardClient() {
     if (rememberChoice) localStorage.setItem(SECRET_KEY, phrase);
 
     const [registry, fetched] = await Promise.all([fetchRegistry(), fetchDonationDoc(keys)]);
-    const doc = await adoptLegacyLocalConfig(keys, fetched);
-    setStage({ stage: "open", keys, pages: payload.pages.map(pageStats), registry, doc });
+    const doc         = await adoptLegacyLocalConfig(keys, fetched);
+    const settlements = await adoptServerSettlements(keys, doc, payload.settlements);
+    setStage({ stage: "open", keys, pages: payload.pages.map(pageStats), registry, doc: { v: 1, budget: doc.budget, share: doc.share }, settlements });
   }
 
   function disconnect() {
@@ -123,6 +128,23 @@ export function DashboardClient() {
       if (serverDoc === null) return;
 
       setStage((current) => (current.stage === "open" ? { ...current, doc: serverDoc } : current));
+    });
+  }
+
+  // Settlement ops go into the encrypted blob instead (whom you paid is reading
+  // data). Same optimistic shape; the sequence guard drops a reconcile that lands
+  // after a newer edit was already applied here, so a slow push cannot regress it.
+  const settleSeq = useRef(0);
+
+  function sendSettlementPatch(patch: SettlementPatch) {
+    if (stage.stage !== "open") return;
+
+    const seq = ++settleSeq.current;
+    setStage({ ...stage, settlements: applySettlementPatch(stage.settlements, patch) });
+    void pushSettlementPatch(stage.keys, patch).then((settlements) => {
+      if (settlements === null || seq !== settleSeq.current) return;
+
+      setStage((current) => (current.stage === "open" ? { ...current, settlements } : current));
     });
   }
 
@@ -147,7 +169,7 @@ export function DashboardClient() {
           <Tiles pages={stage.pages} />
           {stage.doc.share === null && <SupportAsk onAnswer={answerShare} />}
           {stage.registry !== null && (
-            <BudgetSection pages={stage.pages} registry={stage.registry} doc={stage.doc} onPatch={sendPatch} />
+            <BudgetSection pages={stage.pages} registry={stage.registry} doc={stage.doc} settlements={stage.settlements} onPatch={sendPatch} onSettlementPatch={sendSettlementPatch} />
           )}
           <Recent pages={stage.pages} />
           <Sites pages={stage.pages} />
@@ -494,6 +516,23 @@ async function adoptLegacyLocalConfig(keys: SyncKeys, doc: DonationDoc): Promise
     localStorage.removeItem("swdi:settlements");
   }
 
+  return adopted;
+}
+
+/**
+ * Settlements used to live in the plaintext donation doc; fold any the doc still
+ * carries into the encrypted payload once, then rewrite the doc without them so the
+ * plaintext copy leaves the server. If the blob write fails, the doc keeps them for
+ * the next connect to retry, and the merged view is shown either way.
+ */
+async function adoptServerSettlements(keys: SyncKeys, doc: DonationDoc, fromBlob: Settlements): Promise<Settlements> {
+  const legacy = doc.settlements;
+  if (legacy === undefined || Object.keys(legacy).length === 0) return fromBlob;
+
+  const adopted = await adoptLegacySettlements(keys, legacy);
+  if (adopted === null) return { ...legacy, ...fromBlob };
+
+  await putDonationDoc(keys, { v: 1, budget: doc.budget, share: doc.share });
   return adopted;
 }
 

@@ -10,6 +10,8 @@ import {
   SWDI_ALLOCATION_KEY,
   Settlement,
   SettlementLine,
+  SettlementPatch,
+  Settlements,
   nowIso,
   proposalWithShare,
 } from "@swdi/shared";
@@ -20,21 +22,24 @@ import { AuthorEngagement, PageStats, authorEngagement, formatDuration } from ".
 // reviewed and adjusted by you, then paid down as a one-click-per-author list. SWDI
 // never touches the money; each Pay button opens the author's own channel (with the
 // amount prefilled where the provider supports it) and ticks the line off for you.
-// Budget, the ask answer and settlements live in the plaintext donation doc
-// server-side; reading stays in the encrypted blob.
+// Budget and the ask answer live in the plaintext donation doc server-side;
+// settlements name the authors you read, so they travel inside the encrypted blob
+// with the reading they derive from.
 
 export function BudgetSection(props: {
-  pages:    PageStats[];
-  registry: Registry;
-  doc:      DonationDoc;
-  onPatch:  (patch: DonationPatch) => void;
+  pages:       PageStats[];
+  registry:    Registry;
+  doc:         DonationDoc;
+  settlements: Settlements;
+  onPatch:            (patch: DonationPatch) => void;
+  onSettlementPatch:  (patch: SettlementPatch) => void;
 }) {
   const [overrides, setOverrides] = useState<Record<string, number>>({});
 
   const month   = nowIso().slice(0, 7);
   const monthly = authorEngagement(props.registry, props.pages, month);
   const engaged = monthly.length > 0 ? monthly : authorEngagement(props.registry, props.pages, null);
-  const settled = props.doc.settlements[month];
+  const settled = props.settlements[month];
   const budget  = props.doc.budget;
 
   function saveBudget(next: Budget | null) {
@@ -43,15 +48,15 @@ export function BudgetSection(props: {
   }
 
   function settle(lines: SettlementLine[]) {
-    props.onPatch({ op: "settle", settlement: { month, settledAt: nowIso(), lines } });
+    props.onSettlementPatch({ op: "settle", settlement: { month, settledAt: nowIso(), lines } });
   }
 
   function unsettle() {
-    props.onPatch({ op: "unsettle", month });
+    props.onSettlementPatch({ op: "unsettle", month });
   }
 
   function markPaid(key: string, paid: boolean) {
-    props.onPatch({ op: "set-paid", month, key, paid });
+    props.onSettlementPatch({ op: "set-paid", month, key, paid });
   }
 
   return (

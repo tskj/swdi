@@ -12,8 +12,9 @@ import { clientIp, rateLimited } from "@/lib/rate-limit";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-// Donation configuration, plaintext by design (see the schema comment): same
-// pseudonymous id and bearer token as the sync blob, registered on first write.
+// Donation configuration (budget and the share answer), plaintext by design (see the
+// schema comment): same pseudonymous id and bearer token as the sync blob, registered
+// on first write. Settlements never pass through here; they ride the encrypted blob.
 // Last write wins; budgets are edited by one human, not synced continuously.
 
 const SYNC_ID = /^[0-9a-f]{32}$/;
