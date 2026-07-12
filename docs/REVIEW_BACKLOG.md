@@ -135,23 +135,21 @@ required, bytes never validated as real ciphertext, no quota, TTL, or cleanup. F
 store and a cheap DB-fill / hosting-cost DoS. Not in KNOWN_ISSUES.
 Fix: global/per-window storage budget, costed first-write, sweep of never-updated blobs.
 
-### 20. syncId logged in cleartext [MEDIUM]
-`log.ts` records the request path (`/api/sync/<syncId>`) on every request. App logs plus platform
-HTTP logs (IP + timestamp) re-link person <-> blob <-> plaintext donation doc, the exact tie the
-design claims not to make.
-Fix: redact or salted-hash the id in the path for these routes.
+### 20. syncId logged in cleartext [MEDIUM] — DONE 2026-07-12
+`withRequest` replaces any 32-hex path segment with a hash salted per boot
+(`redacted-...`): the same id still correlates within one deploy's logs and to nothing
+beyond them. Verified against the running server: the raw id appears nowhere.
 
-### 21. Donation-doc squatting [MEDIUM]
-First PATCH/PUT registers a row with whatever token hash arrives first, independent of the sync
-table's hash for that id (`src/app/api/donations/[id]/route.ts:56-59,89-92`). Anyone who learns a
-syncId can create the donation doc first and lock the real user out with 404s.
-Fix: bind creation to the sync row's authHash when one exists.
+### 21. Donation-doc squatting [MEDIUM] — DONE 2026-07-12
+Creation now requires the token whose hash the SYNC row carries (`syncRowAuthorizes`);
+with no sync row, creation is denied outright (the dashboard cannot patch before a
+blob exists, so nothing legitimate is lost). API-tested: PATCH and PUT squatting both
+404.
 
-### 22. GET /api/sync loads the whole blob before checking the token [MEDIUM]
-`SELECT *` including `data`, then compares the hash (`src/app/api/sync/[id]/route.ts:33-34`): a
-wrong-token GET does work proportional to blob size (a work/timing oracle, and an amplification
-lever). 128-bit id space keeps enumeration infeasible, so medium.
-Fix: `SELECT auth_hash` first, match, then fetch `data`.
+### 22. GET /api/sync loads the whole blob before checking the token [MEDIUM] — DONE 2026-07-12
+The GET selects `auth_hash` first inside one transaction snapshot and only fetches the
+blob columns after the match, so a wrong-token GET costs the same regardless of blob
+size.
 
 ### 23. Generated-key fast path skips the entropy gate [MEDIUM]
 Any valid base64url string decoding to >=16 bytes is classified `generated` and returned before
@@ -167,11 +165,12 @@ is a community-edited commons, at which point `javascript:` / look-alike phishin
 stored XSS / payment redirection on a "Pay" button.
 Fix: constrain the schema to `https:` / `bitcoin:` before community editing opens.
 
-### 25. Security-relevant paths are untested [MEDIUM]
-`e2e/dashboard.spec.ts` covers the happy path only. Untested: wrong-token 404, 409 version
-conflict, 429 rate-limit, oversized-blob 400, corrupted-doc-reads-as-absent, and the
-concurrent-first-registration unique-violation -> 409 path. These are exactly where a regression
-silently breaks the trust model. API-level tests, no browser needed.
+### 25. Security-relevant paths are untested [MEDIUM] — DONE 2026-07-12
+`e2e/api.spec.ts` (playwright request-only, real app + database): wrong-token 404
+indistinguishable from unknown id, stale-version 409 naming the current version,
+oversized-blob 400, concurrent-first-registration one-200-one-409, donation-doc
+squatting denied, corrupted-doc-reads-as-absent then heals on PUT, and the 429 within
+one window. Each test isolates its rate bucket with its own X-Forwarded-For.
 
 ## Tier 6 — smaller code hygiene and correctness
 

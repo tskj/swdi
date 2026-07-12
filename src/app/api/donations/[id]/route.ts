@@ -4,8 +4,8 @@ import { NextResponse } from "next/server";
 import { EMPTY_DONATION_DOC, applyDonationPatch, donationDocSchema, donationPatchSchema } from "@swdi/shared";
 import { nowDate } from "@/lib/clock";
 import { db } from "@/lib/db";
-import { donationConfigs } from "@/lib/db/schema";
-import { withTransaction } from "@/lib/db-tx";
+import { donationConfigs, syncBlobs } from "@/lib/db/schema";
+import { Tx, withTransaction } from "@/lib/db-tx";
 import { withRequest } from "@/lib/log";
 import { clientIp, rateLimited } from "@/lib/rate-limit";
 
@@ -13,9 +13,12 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 // Donation configuration (budget and the share answer), plaintext by design (see the
-// schema comment): same pseudonymous id and bearer token as the sync blob, registered
-// on first write. Settlements never pass through here; they ride the encrypted blob.
-// Last write wins; budgets are edited by one human, not synced continuously.
+// schema comment): same pseudonymous id and bearer token as the sync blob. Creation
+// is bound to the sync row: the first write must present the token whose hash the
+// sync blob already carries, so learning someone's sync id is not enough to squat
+// their donation doc and lock them out. Settlements never pass through here; they
+// ride the encrypted blob. Last write wins; budgets are edited by one human, not
+// synced continuously.
 
 const SYNC_ID = /^[0-9a-f]{32}$/;
 
@@ -55,6 +58,8 @@ export async function PUT(req: Request, ctx: { params: Promise<{ id: string }> }
       const row = await tx.select().from(donationConfigs).where(eq(donationConfigs.syncId, id)).maybeSingle("donations.put");
 
       if (row === null) {
+        if (!(await syncRowAuthorizes(tx, id, hash))) return false;
+
         await tx.insert(donationConfigs).values({ syncId: id, authHash: hash, doc: parsed.data, createdAt: nowDate(), updatedAt: nowDate() });
         return true;
       }
@@ -88,6 +93,8 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
       const row = await tx.select().from(donationConfigs).where(eq(donationConfigs.syncId, id)).maybeSingle("donations.patch");
 
       if (row === null) {
+        if (!(await syncRowAuthorizes(tx, id, hash))) return null;
+
         const doc = applyDonationPatch(EMPTY_DONATION_DOC, parsed.data);
         await tx.insert(donationConfigs).values({ syncId: id, authHash: hash, doc, createdAt: nowDate(), updatedAt: nowDate() });
         return doc;
@@ -103,6 +110,18 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
 
     return outcome === null ? notFound() : NextResponse.json(outcome);
   });
+}
+
+/**
+ * A donation doc may only be created by whoever holds the sync blob's write token:
+ * the sync row is the identity's anchor, and it always exists before the dashboard
+ * can patch (connect requires a blob). Without this, whoever learned a sync id first
+ * could register the doc under their own token and lock the real owner out forever.
+ */
+async function syncRowAuthorizes(tx: Tx, id: string, hash: string): Promise<boolean> {
+  const sync = await tx.select({ authHash: syncBlobs.authHash }).from(syncBlobs).where(eq(syncBlobs.syncId, id)).maybeSingle("donations.sync-auth");
+
+  return sync !== null && hashesMatch(sync.authHash, hash);
 }
 
 function notFound() {

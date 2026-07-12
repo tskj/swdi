@@ -3,7 +3,6 @@ import { eq } from "drizzle-orm";
 import { NextResponse } from "next/server";
 import { syncPutRequestSchema } from "@swdi/shared";
 import { nowDate } from "@/lib/clock";
-import { db } from "@/lib/db";
 import { syncBlobs } from "@/lib/db/schema";
 import { pgErrorCode, withTransaction } from "@/lib/db-tx";
 import { withRequest } from "@/lib/log";
@@ -30,10 +29,19 @@ export async function GET(req: Request, ctx: { params: Promise<{ id: string }> }
     const token  = bearerToken(req);
     if (!SYNC_ID.test(id) || token === null) return notFound();
 
-    const row = await db.select().from(syncBlobs).where(eq(syncBlobs.syncId, id)).maybeSingle("sync.get");
-    if (row === null || !hashesMatch(row.authHash, tokenHash(token))) return notFound();
+    // The token hash is checked before the blob column is ever read, so a wrong-token
+    // GET costs the same regardless of blob size; loading megabytes first would hand
+    // out a work oracle and an amplification lever for free.
+    const row = await withTransaction({ name: "sync.get" }, async (tx) => {
+      const auth = await tx.select({ authHash: syncBlobs.authHash }).from(syncBlobs).where(eq(syncBlobs.syncId, id)).maybeSingle("sync.get.auth");
+      if (auth === null || !hashesMatch(auth.authHash, tokenHash(token))) return null;
 
-    return NextResponse.json({ version: row.version, iv: row.iv, data: row.data });
+      return tx.select({ version: syncBlobs.version, iv: syncBlobs.iv, data: syncBlobs.data })
+        .from(syncBlobs).where(eq(syncBlobs.syncId, id)).single("sync.get.blob");
+    });
+    if (row === null) return notFound();
+
+    return NextResponse.json(row);
   });
 }
 

@@ -5,7 +5,8 @@ import { integer, jsonb, pgTable, text, timestamp } from "drizzle-orm/pg-core";
 // deliberately no user table: the keyphrase-derived sync id is the whole identity.
 // Donation configuration (budget, the one-time share answer) is service data, not
 // reading data: plaintext jsonb, keyed by the same pseudonymous sync id and guarded
-// by the same write-token hash, registered on first write. Settlements are NOT here:
+// by the same write-token hash. Creation is bound to the sync row's token hash, so
+// learning a sync id is not enough to squat the doc. Settlements are NOT here:
 // whom a budget was paid to is a projection of reading history, so they live inside
 // the encrypted blob (old rows may still carry a legacy copy until the dashboard
 // adopts it). The doc's shape is donationDocSchema in @swdi/shared, parsed on every

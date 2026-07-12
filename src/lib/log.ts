@@ -1,5 +1,6 @@
 import "server-only";
 import { AsyncLocalStorage } from "node:async_hooks";
+import { createHash } from "node:crypto";
 import type { NextResponse } from "next/server";
 import { nowDate } from "./clock";
 import { report } from "./report";
@@ -248,12 +249,12 @@ export async function withRequest(
   state.stack.push(root);
 
   return als.run(state, async () => {
-    const url       = new URL(req.url);
+    const path      = redactedPath(new URL(req.url).pathname);
     const startedAt = nowDate();
 
     root.info(Attr.REQUEST_STARTED_AT, startedAt.toISOString());
     root.info(Attr.REQUEST_METHOD,     req.method);
-    root.info(Attr.REQUEST_PATH,       url.pathname);
+    root.info(Attr.REQUEST_PATH,       path);
 
     try {
       const result = await fn();
@@ -263,11 +264,23 @@ export async function withRequest(
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       root.info(Attr.REQUEST_ERROR, message);
-      log.error("request.uncaught", message, { method: req.method, path: url.pathname });
+      log.error("request.uncaught", message, { method: req.method, path });
       finalizeRequest(state, startedAt);
       throw err;
     }
   });
+}
+
+// Sync ids ride in request paths (/api/sync/<id>), and logging them verbatim would
+// let app logs plus platform HTTP logs (IP + timestamp) re-link a person to their
+// blob and its donation config, the exact tie the design promises not to make. Log a
+// hash salted per boot instead: the same id still correlates within one deploy's
+// logs, and correlates to nothing across restarts or outside them.
+const PATH_ID_SALT = crypto.randomUUID();
+
+function redactedPath(pathname: string): string {
+  return pathname.replace(/[0-9a-f]{32}/g, (id) =>
+    `redacted-${createHash("sha256").update(`${PATH_ID_SALT}:${id}`).digest("hex").slice(0, 12)}`);
 }
 
 function finalizeRequest(state: RequestState, startedAt: Date): void {
