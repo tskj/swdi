@@ -35,7 +35,10 @@ test("the donation loop: connect, ask, budget, propose, pay, persist", async ({ 
   const keys   = await deriveSyncKeys(secret);
   if (keys === null) throw new Error("derive failed");
 
-  const at    = `${nowIso().slice(0, 7)}-03T10:00:00.000Z`; // inside the current month
+  // Day 3 of the current LOCAL month (months bucket in the reader's time now); the
+  // 10:00Z instant keeps it inside that month for any timezone the test runs in.
+  const now   = new Date(nowIso());
+  const at    = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-03T10:00:00.000Z`;
   const pages = [
     record("https://meaningness.com/nebulosity", "Nebulosity", 30, 24, at),
     record("https://overreacted.io/goodbye-clean-code", "Goodbye, Clean Code", 12, 8, at),
@@ -81,4 +84,23 @@ test("the donation loop: connect, ask, budget, propose, pay, persist", async ({ 
   await connect();
   await expect(ui.getByText("1 of 3 done")).toBeVisible();
   await expect(ui.getByText("undo")).toBeVisible();
+
+  // A month later the settled list has not vanished: unpaid lines carry forward with
+  // their Pay buttons, next to a fresh proposal for the new month.
+  const later = new Date(nowIso());
+  later.setMonth(later.getMonth() + 1, 15);
+  await ui.clock.setFixedTime(later);
+
+  await connect();
+  await expect(ui.getByText("is unfinished: 2 of 3 still unpaid")).toBeVisible();
+  await expect(ui.getByRole("link", { name: /^Pay \d+ kr on Ko-fi$/ })).toBeVisible();
+  await expect(ui.getByText("nothing read this month yet")).toBeVisible();
+
+  // Forget writes the month off, and the removal sticks across a fresh connect.
+  const forgetPush = ui.waitForResponse((r) => r.url().includes("/api/sync/") && r.request().method() === "PUT");
+  await ui.getByRole("button", { name: "Forget this month" }).click();
+  await forgetPush;
+
+  await connect();
+  await expect(ui.getByText("is unfinished")).toHaveCount(0);
 });

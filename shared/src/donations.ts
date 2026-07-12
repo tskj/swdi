@@ -28,6 +28,12 @@ export const settlementLineSchema = z.object({
 export const settlementSchema = z.object({
   month:     z.string().regex(/^\d{4}-\d{2}$/),
   settledAt: z.string(),
+
+  // Snapshotted from the budget at settle time, so changing the budget's currency
+  // later cannot re-denominate history. Optional because settlements predate it;
+  // display falls back to the live budget's currency for those.
+  currency:  z.string().min(1).max(8).optional(),
+
   lines:     z.array(settlementLineSchema),
 });
 

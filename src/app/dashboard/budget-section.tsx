@@ -16,7 +16,7 @@ import {
   proposalWithShare,
 } from "@swdi/shared";
 import { csR, squircle, superellipse3 } from "@/lib/squircle";
-import { AuthorEngagement, PageStats, authorEngagement, formatDuration } from "./derive";
+import { AuthorEngagement, PageStats, authorEngagement, currentMonth, formatDuration, formatMonth, pluralize } from "./derive";
 
 // The donation loop: one monthly amount, split in proportion to your reading,
 // reviewed and adjusted by you, then paid down as a one-click-per-author list. SWDI
@@ -36,11 +36,18 @@ export function BudgetSection(props: {
 }) {
   const [overrides, setOverrides] = useState<Record<string, number>>({});
 
-  const month   = nowIso().slice(0, 7);
+  const month   = currentMonth();
   const monthly = authorEngagement(props.registry, props.pages, month);
   const engaged = monthly.length > 0 ? monthly : authorEngagement(props.registry, props.pages, null);
   const settled = props.settlements[month];
   const budget  = props.doc.budget;
+
+  // Every settled month except the current one stays on the page, newest first:
+  // unpaid lines keep their Pay buttons across the rollover, finished months shrink
+  // to a history line. Nothing settled ever silently disappears.
+  const past = Object.values(props.settlements)
+    .filter((settlement) => settlement.month !== month)
+    .sort((a, b) => b.month.localeCompare(a.month));
 
   function saveBudget(next: Budget | null) {
     setOverrides({});
@@ -48,15 +55,17 @@ export function BudgetSection(props: {
   }
 
   function settle(lines: SettlementLine[]) {
-    props.onSettlementPatch({ op: "settle", settlement: { month, settledAt: nowIso(), lines } });
+    if (budget === null) return;
+
+    props.onSettlementPatch({ op: "settle", settlement: { month, settledAt: nowIso(), currency: budget.currency, lines } });
   }
 
-  function unsettle() {
-    props.onSettlementPatch({ op: "unsettle", month });
+  function unsettle(target: string) {
+    props.onSettlementPatch({ op: "unsettle", month: target });
   }
 
-  function markPaid(key: string, paid: boolean) {
-    props.onSettlementPatch({ op: "set-paid", month, key, paid });
+  function markPaid(target: string, key: string, paid: boolean) {
+    props.onSettlementPatch({ op: "set-paid", month: target, key, paid });
   }
 
   return (
@@ -79,8 +88,30 @@ export function BudgetSection(props: {
       )}
 
       {settled !== undefined && (
-        <PayList settlement={settled} registry={props.registry} currency={budget?.currency ?? "kr"} onPaid={markPaid} onReopen={unsettle} />
+        <PayList
+          settlement={settled}
+          registry={props.registry}
+          currency={settled.currency ?? budget?.currency ?? "kr"}
+          onPaid={(key, paid) => markPaid(month, key, paid)}
+          onReopen={() => unsettle(month)}
+        />
       )}
+
+      {past.map((settlement) => {
+        const currency = settlement.currency ?? budget?.currency ?? "kr";
+        return settlement.lines.some((line) => !line.paid)
+          ? (
+            <OutstandingMonth
+              key={settlement.month}
+              settlement={settlement}
+              registry={props.registry}
+              currency={currency}
+              onPaid={(key, paid) => markPaid(settlement.month, key, paid)}
+              onForget={() => unsettle(settlement.month)}
+            />
+          )
+          : <FinishedMonth key={settlement.month} settlement={settlement} currency={currency} />;
+      })}
     </section>
   );
 }
@@ -256,50 +287,103 @@ function PayList(props: {
   return (
     <div className="mt-4 border border-(--line) bg-(--card) px-6 py-5" style={{ borderRadius: csR(12, 28), ...superellipse3 }}>
       <p className="text-[15px] text-(--ink-soft)">
-        {props.settlement.month}: each Pay opens the author&apos;s own channel and ticks
-        the line off. {paid} of {props.settlement.lines.length} done.
+        {formatMonth(props.settlement.month)}: each Pay opens the author&apos;s own channel
+        and ticks the line off. {paid} of {props.settlement.lines.length} done.
       </p>
 
       <ul className="mt-4 space-y-4">
-        {props.settlement.lines.map((line) => {
-          const entry  = props.registry.entries.find((e) => e.name === (line.key === SWDI_ALLOCATION_KEY ? "SWDI" : line.key));
-          const target = payTarget(entry, line.minor, props.currency);
-          return (
-            <li key={line.key} className="flex flex-wrap items-center gap-3">
-              <span className={`min-w-0 flex-1 truncate ${line.paid ? "line-through opacity-60" : ""}`}>{line.name}</span>
-
-              {line.paid && (
-                <button className="shrink-0 font-sans text-[12px] text-(--ink-soft) underline underline-offset-4" onClick={() => props.onPaid(line.key, false)}>
-                  undo
-                </button>
-              )}
-
-              {!line.paid && target !== null && (
-                <a
-                  className="shrink-0 border border-(--line) bg-(--ink) px-4 py-1.5 font-sans text-[13px] text-(--paper)"
-                  style={{ borderRadius: csR(999, 999), ...squircle }}
-                  href={target.url}
-                  target="_blank"
-                  rel="noreferrer"
-                  onClick={() => props.onPaid(line.key, true)}
-                >
-                  Pay {Math.round(line.minor / 100)} {props.currency} on {target.label}
-                </a>
-              )}
-
-              {!line.paid && target === null && (
-                <span className="shrink-0 font-sans text-[12px] text-(--ink-soft)">
-                  {Math.round(line.minor / 100)} {props.currency} · no channel yet
-                </span>
-              )}
-            </li>
-          );
-        })}
+        {props.settlement.lines.map((line) => (
+          <PayLine key={line.key} line={line} registry={props.registry} currency={props.currency} onPaid={props.onPaid} />
+        ))}
       </ul>
 
       <button className="mt-4 font-sans text-[12px] text-(--ink-soft) underline underline-offset-4" onClick={props.onReopen}>
         Reopen and adjust
       </button>
     </div>
+  );
+}
+
+// A month that rolled over with lines still unpaid. It keeps its Pay buttons for as
+// long as it takes; Forget writes the remainder off and removes the month's record.
+function OutstandingMonth(props: {
+  settlement: Settlement;
+  registry:   Registry;
+  currency:   string;
+  onPaid:     (key: string, paid: boolean) => void;
+  onForget:   () => void;
+}) {
+  const left = props.settlement.lines.filter((line) => !line.paid).length;
+
+  return (
+    <div className="mt-4 border border-(--line) bg-(--card) px-6 py-5" style={{ borderRadius: csR(12, 28), ...superellipse3 }}>
+      <p className="text-[15px] text-(--ink-soft)">
+        {formatMonth(props.settlement.month)} is unfinished: {left} of {props.settlement.lines.length} still unpaid.
+      </p>
+
+      <ul className="mt-4 space-y-4">
+        {props.settlement.lines.map((line) => (
+          <PayLine key={line.key} line={line} registry={props.registry} currency={props.currency} onPaid={props.onPaid} />
+        ))}
+      </ul>
+
+      <button className="mt-4 font-sans text-[12px] text-(--ink-soft) underline underline-offset-4" onClick={props.onForget}>
+        Forget this month
+      </button>
+    </div>
+  );
+}
+
+function FinishedMonth(props: { settlement: Settlement; currency: string }) {
+  const total = props.settlement.lines.reduce((sum, line) => sum + line.minor, 0);
+
+  return (
+    <p className="mt-4 flex items-baseline justify-between gap-4 border-b border-(--line) pb-2 font-sans text-[14px]">
+      <span>{formatMonth(props.settlement.month)}</span>
+      <span className="text-(--ink-soft)">paid {Math.round(total / 100)} {props.currency} to {pluralize(props.settlement.lines.length, "author")}</span>
+    </p>
+  );
+}
+
+function PayLine(props: {
+  line:     SettlementLine;
+  registry: Registry;
+  currency: string;
+  onPaid:   (key: string, paid: boolean) => void;
+}) {
+  const { line } = props;
+
+  const entry  = props.registry.entries.find((e) => e.name === (line.key === SWDI_ALLOCATION_KEY ? "SWDI" : line.key));
+  const target = payTarget(entry, line.minor, props.currency);
+
+  return (
+    <li className="flex flex-wrap items-center gap-3">
+      <span className={`min-w-0 flex-1 truncate ${line.paid ? "line-through opacity-60" : ""}`}>{line.name}</span>
+
+      {line.paid && (
+        <button className="shrink-0 font-sans text-[12px] text-(--ink-soft) underline underline-offset-4" onClick={() => props.onPaid(line.key, false)}>
+          undo
+        </button>
+      )}
+
+      {!line.paid && target !== null && (
+        <a
+          className="shrink-0 border border-(--line) bg-(--ink) px-4 py-1.5 font-sans text-[13px] text-(--paper)"
+          style={{ borderRadius: csR(999, 999), ...squircle }}
+          href={target.url}
+          target="_blank"
+          rel="noreferrer"
+          onClick={() => props.onPaid(line.key, true)}
+        >
+          Pay {Math.round(line.minor / 100)} {props.currency} on {target.label}
+        </a>
+      )}
+
+      {!line.paid && target === null && (
+        <span className="shrink-0 font-sans text-[12px] text-(--ink-soft)">
+          {Math.round(line.minor / 100)} {props.currency} · no channel yet
+        </span>
+      )}
+    </li>
   );
 }

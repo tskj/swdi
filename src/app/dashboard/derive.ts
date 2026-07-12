@@ -1,4 +1,4 @@
-import { summarize, summaryReadLevel, type PageRecord, type PageSummary, type Registry, type RegistryEntry } from "@swdi/shared";
+import { nowDate, summarize, summaryReadLevel, type PageRecord, type PageSummary, type Registry, type RegistryEntry } from "@swdi/shared";
 
 // Pure derivations and formatters behind the dashboard views. Read/summary semantics
 // come from the shared read-model helpers; nothing here reinvents them.
@@ -86,14 +86,15 @@ export function matchAuthors(registry: Registry, pages: PageStats[]): AuthorMatc
 export type AuthorEngagement = { entry: RegistryEntry; words: number; dwellMs: number; pagesRead: number };
 
 /**
- * Reading weight per registry author, optionally restricted to a month ("2026-07").
- * Weight is the word count of the paragraphs actually read: word count is the stable,
+ * Reading weight per registry author, optionally restricted to a month ("2026-07",
+ * bucketed in local time so reads land in the same month a settle would). Weight is
+ * the word count of the paragraphs actually read: word count is the stable,
  * reading-speed-independent measure of how much you read (dwell would vary with the WPM
  * setting and its own cap). A read still has to carry real dwell to count, so vouched or
  * backfilled reading (dwellMs 0) is excluded. dwellMs rides along for display; authors
  * with no read words in the window drop out.
  */
-export function authorEngagement(registry: Registry, pages: PageStats[], monthPrefix: string | null): AuthorEngagement[] {
+export function authorEngagement(registry: Registry, pages: PageStats[], month: string | null): AuthorEngagement[] {
   const engaged: AuthorEngagement[] = [];
 
   for (const entry of registry.entries) {
@@ -107,7 +108,7 @@ export function authorEngagement(registry: Registry, pages: PageStats[], monthPr
 
       let readHere = false;
       for (const [hash, r] of Object.entries(page.record.read)) {
-        if (monthPrefix !== null && !r.at.startsWith(monthPrefix)) continue;
+        if (month !== null && monthOf(r.at) !== month) continue;
         if (r.dwellMs <= 0) continue; // read, but vouched rather than dwelled: no donation weight
 
         words   += r.words || wordOf.get(hash) || 0; // stamped at read time; the outline is the fallback for 0 (records from before words were tracked)
@@ -134,6 +135,37 @@ function urlUnderSite(url: string, site: string): boolean {
 
   const next = url[prefix.length];
   return next === "/" || next === "?" || next === "#";
+}
+
+/**
+ * The month on the reader's wall clock ("2026-07"). Settles key to this, so an
+ * evening settle near a month boundary lands in the month the reader lives in,
+ * not UTC's.
+ */
+export function currentMonth(): string {
+  return localMonth(nowDate());
+}
+
+/** A stored ISO timestamp's month, again local, so reads and settles bucket alike. */
+export function monthOf(iso: string): string {
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return "";
+
+  return localMonth(date);
+}
+
+function localMonth(date: Date): string {
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}`;
+}
+
+const monthFormat = new Intl.DateTimeFormat("en", { month: "long", year: "numeric" });
+
+/** A month key as "July 2026"; the raw string when unparsable. */
+export function formatMonth(month: string): string {
+  const date = new Date(`${month}-01T00:00:00`);
+  if (Number.isNaN(date.getTime())) return month;
+
+  return monthFormat.format(date);
 }
 
 export function percentRead(summary: PageSummary): number {

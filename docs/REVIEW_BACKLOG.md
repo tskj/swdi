@@ -18,13 +18,13 @@ the extension carries them through untouched, and legacy plaintext settlements a
 adopted into the blob on the next dashboard connect, after which the donation doc is
 rewritten without them. The settle/unsettle/set-paid ops left the server PATCH schema.
 
-### 2. Month rollover silently drops unpaid authors [HIGH]
-Everything keys to the current UTC month (`src/app/dashboard/budget-section.tsx:34,76`). Settle
-late July, pay 3 of 5, return in August: the July PayList is gone, replaced by a fresh August
-proposal; the two unpaid authors are forgotten and there is no history of past settlements
-anywhere. The "come back next month" step, which we keep calling the point, does not work.
-Also the month boundary is UTC, so an evening settle near month-end can land in the wrong month.
-Fix: a settlement-history view, carry unpaid lines forward, and compute the month in local time.
+### 2. Month rollover silently drops unpaid authors [HIGH] — DONE 2026-07-12
+Every settled month except the current one now stays on the dashboard, newest first:
+months with unpaid lines keep their Pay buttons across the rollover (with an explicit
+"Forget this month" to write one off), fully paid months shrink to a history line.
+Months are computed on the reader's wall clock (`currentMonth`/`monthOf` in
+`src/app/dashboard/derive.ts`), and reads bucket by the same local months so proposals
+and settles agree near a boundary. The e2e drives the rollover with a faked clock.
 
 ### 3. Pay marks a line paid before any money moves [HIGH]
 Clicking Pay fires `onPaid(key, true)` on the link click itself
@@ -195,10 +195,9 @@ silently breaks the trust model. API-level tests, no browser needed.
 
 ## Tier 6 — smaller code hygiene and correctness
 
-- **Settlements do not record their currency** [HIGH, but narrow]: `shared/src/donations.ts:20-31`
-  stores only `minor`; the display currency comes from the live budget with a "kr" fallback
-  (`budget-section.tsx:77`). Change currency after settling and past amounts re-denominate.
-  Snapshot the currency into the settlement.
+- **Settlements do not record their currency** [HIGH, but narrow] — DONE 2026-07-12 with #2:
+  `settlementSchema` gained an optional `currency`, snapshotted from the budget at settle time;
+  display falls back to the live budget only for settlements from before the field existed.
 - **Per-page read classes leak to page scripts** [MEDIUM]: `swdi-read`/`swdi-new` are set on the
   page's own elements from the stored record (`extension/src/content.ts:218-221`), so a page can
   read which of its paragraphs you read on prior visits, even with overlay off (only CSS is
