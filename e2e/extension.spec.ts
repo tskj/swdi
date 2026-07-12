@@ -262,6 +262,12 @@ test("'I've read this far' marks everything above read and clears everything bel
   );
   expect(deepestReadTop).toBeLessThanOrEqual(clickY + 3);
 
+  // The action leaves a toast holding the way back: Undo restores every cleared
+  // paragraph, and the restore persists.
+  await page.locator(".swdi-toast button").click();
+  await expect.poll(async () => Object.keys((await storedRecord()).read).length, { timeout: 10_000 }).toBe(total);
+  await expect(page.locator(".swdi-toast")).not.toBeAttached();
+
   await page.close();
 });
 
@@ -427,6 +433,40 @@ test("paragraphs detached by a SPA-style swap never commit", async () => {
   await page.waitForTimeout(3_000);
 
   expect(Object.keys((await storedRecord())?.read ?? {}).length).toBe(0);
+
+  await page.close();
+});
+
+test("'I've read this far' from a keyboard-opened menu does nothing", async () => {
+  await worker.evaluate((key) => chrome.storage.local.remove(key), PAGE_KEY);
+
+  const page = await context.newPage();
+  await page.goto(PAGE_URL);
+  await expect.poll(async () => (await storedRecord())?.outline?.length ?? 0, { timeout: 15_000 }).toBeGreaterThan(10);
+
+  // A fully read page, freshly loaded, and NO right-click ever happens: the menu
+  // action arrives with no captured coordinates, so there is no "here" to act on.
+  // It used to mean "above the first paragraph" and wipe the whole page.
+  await worker.evaluate(async (key) => {
+    const got    = await chrome.storage.local.get(key);
+    const record = got[key];
+    for (const entry of record.outline) record.read[entry.h] = { at: "2026-06-01T00:00:00.000Z", dwellMs: 5000 };
+    record.lastReadAt = "2026-06-01T00:00:00.000Z";
+    await chrome.storage.local.set({ [key]: record });
+  }, PAGE_KEY);
+
+  await page.reload();
+  const total = (await storedRecord()).outline.length;
+  await expect.poll(() => page.locator(".swdi-read").count(), { timeout: 15_000 }).toBe(total);
+
+  const answer = await worker.evaluate(async () => {
+    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+    return chrome.tabs.sendMessage(tab.id, { type: "swdi:read-up-to-here" });
+  });
+  expect(answer?.ok).toBe(false);
+
+  await page.waitForTimeout(1_000);
+  expect(Object.keys((await storedRecord()).read).length).toBe(total);
 
   await page.close();
 });

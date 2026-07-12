@@ -44,14 +44,14 @@ geometry has its bottom inside the viewport. Anchoring to the last tracked parag
 navs. Footers and comment threads below the prose no longer push the finish line away;
 e2e covers stopping at the last paragraph well short of document bottom.
 
-### 5. "I've read this far" can wipe a page from a stray click, no undo [HIGH]
-Clears-and-tombstones everything below the click (`extension/src/content.ts:481-506`),
-propagating through sync, unrecoverable. The menu item shows on every http(s) page. A
-keyboard-invoked context menu (menu key / Shift+F10) carries no coordinates, so
-`lastContextMenuY` stays 0 (`content.ts:145-146`) and it means "above the first paragraph": full
-page wipe.
-Fix: an in-page Undo toast (hold the pre-clear read map for one action), and guard the zero-Y /
-above-article case behind a confirm or make it a no-op.
+### 5. "I've read this far" can wipe a page from a stray click, no undo [HIGH] — DONE 2026-07-12
+The action now leaves a one-shot in-page Undo toast holding exactly what it changed.
+Undo re-stamps everything at undo time so the reversal beats the action's tombstones in
+every merge and on every device: cleared paragraphs come back as read-at-now (the
+original reading date is the price, paid only on paragraphs the stray click hit), and a
+revoked whole-page vouch is reinstated the same way. `lastContextMenuY` is null until a
+real right-click happens, so a keyboard-opened menu (no coordinates) is a no-op instead
+of a full page wipe. Both paths are e2e-covered.
 
 ### 6. Backfill undo deletes real history [HIGH]
 `toggleBackfilled` (`extension/src/content.ts:634-646`): first click vouches even a page with a

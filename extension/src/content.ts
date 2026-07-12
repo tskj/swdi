@@ -35,6 +35,10 @@ const IO_THRESHOLDS = [0, 0.1, 0.25, 0.5, 0.75, 1];
 const TICK_MS    = 1_000;
 const PERSIST_MS = 2_000;
 
+// How long the post-action Undo toast stays: long enough to read and reconsider,
+// short enough to get out of the way of the actual reading.
+const UNDO_TOAST_MS = 12_000;
+
 // How much of the article's end may still hang below the viewport and count as
 // "reached the end", where the last paragraphs (which never scroll out of view) are
 // allowed to commit.
@@ -118,7 +122,10 @@ chrome.runtime.onMessage.addListener((message: unknown, _sender, sendResponse) =
   }
 
   if (readUpToHereMessageSchema.safeParse(message).success) {
-    if (current.phase === "tracking") {
+    // No captured right-click means no "here": a keyboard-opened menu (menu key,
+    // Shift+F10) carries no coordinates, and acting on an invisible point used to
+    // wipe the whole page. Doing nothing is the only honest reading.
+    if (current.phase === "tracking" && lastContextMenuY !== null) {
       void current.markReadThisFar(lastContextMenuY).then(() => sendResponse({ ok: true }));
       return true; // async response
     }
@@ -142,8 +149,10 @@ chrome.runtime.onMessage.addListener((message: unknown, _sender, sendResponse) =
 
 // "I've read this far" arrives from the service worker's context-menu click, which
 // carries no coordinates; capture the last right-click position so the handler above
-// knows how far "here" is. Capture phase, so a page that swallows contextmenu can't hide it.
-let lastContextMenuY = 0;
+// knows how far "here" is. Null until a real right-click happens: the handler treats
+// that as "nowhere" rather than "the top of the page". Capture phase, so a page that
+// swallows contextmenu can't hide it.
+let lastContextMenuY: number | null = null;
 window.addEventListener("contextmenu", (event) => { lastContextMenuY = event.pageY; }, true);
 
 main().catch((err) => console.warn("swdi: reader failed to start", err));
@@ -505,8 +514,17 @@ async function main() {
   // left marked beneath it. The clears are tombstoned, so they hold through every merge:
   // concurrent tabs, sync, and stale devices. A click above the first paragraph resets
   // the page, every paragraph cleared and no resume point, a way to start a reread.
+  // Because the action un-reads at a distance, it leaves behind a one-shot Undo toast
+  // holding exactly what it changed.
   async function markReadThisFar(pageY: number): Promise<void> {
     const at = nowIso();
+
+    const marked:  Tracked[] = [];
+    const removed  = new Map<Tracked, { dwellMs: number; words: number }>();
+    const before   = {
+      furthestReadHash: record.furthestReadHash,
+      wasVouched:       record.assumedReadAt !== null,
+    };
 
     let deepest: string | null = null;
     for (const t of tracked.values()) {
@@ -519,9 +537,11 @@ async function main() {
       const top = rect.top + window.scrollY;
 
       if (top <= pageY) {
-        if (!t.read) markRead(t);
+        if (!t.read) { markRead(t); marked.push(t); }
         deepest = t.p.hash;
       } else if (t.read) {
+        const entry = record.read[t.p.hash];
+        if (entry !== undefined) removed.set(t, { dwellMs: entry.dwellMs, words: entry.words });
         clearRead(t, at);
       }
     }
@@ -536,6 +556,38 @@ async function main() {
 
     record.furthestReadHash = deepest;
     await flush();
+
+    if (marked.length === 0 && removed.size === 0) return;
+
+    const lost = removed.size > 0
+      ? `${removed.size} ${removed.size === 1 ? "paragraph" : "paragraphs"} below became unread.`
+      : `${marked.length} ${marked.length === 1 ? "paragraph" : "paragraphs"} marked read.`;
+    showUndoToast(`Read up to here. ${lost}`, () => undoReadThisFar(marked, removed, before));
+  }
+
+  // The way back from a stray "read this far". Everything it changed is stamped anew
+  // at undo time so the reversal beats the action's tombstones in every merge, on
+  // every device: what the action marked gets cleared (tombstoned like any hand
+  // clear), what it cleared comes back as read-at-now (the original reading date is
+  // the price, paid only on the paragraphs the stray click actually hit), and a
+  // revoked whole-page vouch is reinstated the same way.
+  function undoReadThisFar(marked: Tracked[], removed: Map<Tracked, { dwellMs: number; words: number }>, before: { furthestReadHash: string | null; wasVouched: boolean }) {
+    const at = nowIso();
+
+    for (const t of marked) clearRead(t, at);
+
+    for (const [t, entry] of removed) {
+      t.read = true;
+      io.unobserve(t.p.el);
+      record.read[t.p.hash] = { at, dwellMs: entry.dwellMs, words: entry.words };
+      record.lastReadAt     = at;
+      t.p.el.classList.add("swdi-read");
+    }
+
+    if (before.wasVouched) record.assumedReadAt = at;
+
+    record.furthestReadHash = before.furthestReadHash;
+    void flush();
   }
 
   current = {
@@ -676,6 +728,37 @@ async function toggleBackfilled(pageUrl: string, anchor: HTMLAnchorElement, stub
   await vouchFor(pageUrl, title);
   stubbed.add(pageUrl);
   applyBadge(anchor, "read");
+}
+
+// One quiet pill at the bottom of the page, replacing any previous one: the way back
+// from an action that changed read-state at a distance. Dismisses itself.
+let undoToast: HTMLElement | null = null;
+
+function showUndoToast(text: string, undo: () => void) {
+  undoToast?.remove();
+
+  const toast = document.createElement("div");
+  toast.className = "swdi-toast swdi-ui";
+
+  const label = document.createElement("span");
+  label.textContent = text;
+  toast.appendChild(label);
+
+  const button = document.createElement("button");
+  button.textContent = "Undo";
+  toast.appendChild(button);
+
+  const timer = window.setTimeout(dismiss, UNDO_TOAST_MS);
+  function dismiss() {
+    clearTimeout(timer);
+    toast.remove();
+    if (undoToast === toast) undoToast = null;
+  }
+
+  button.addEventListener("click", () => { undo(); dismiss(); });
+
+  document.body.appendChild(toast);
+  undoToast = toast;
 }
 
 function isPausedHost(blockedHosts: string[], host: string): boolean {

@@ -24,7 +24,9 @@ html.swdi-overlay-off .swdi-new  { box-shadow: none; }
 
 html.swdi-overlay-off .swdi-badge-host { display: none; }
 
-.swdi-backfill {
+/* The backfill banner and the post-action Undo toast share one quiet pill. */
+.swdi-backfill,
+.swdi-toast {
   position: fixed;
   left: 50%;
   bottom: 1rem;
@@ -42,7 +44,8 @@ html.swdi-overlay-off .swdi-badge-host { display: none; }
   box-shadow: 0 2px 10px rgba(0, 0, 0, 0.35);
 }
 
-.swdi-backfill button {
+.swdi-backfill button,
+.swdi-toast button {
   border: 0;
   border-radius: 999px;
   padding: 0.35em 0.9em;
