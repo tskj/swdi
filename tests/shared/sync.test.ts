@@ -96,6 +96,16 @@ describe("secretStrength", () => {
     expect(secretStrength("just lowercase words here")).toEqual({ kind: "weak", reason: "has-spaces" });
     expect(secretStrength("MinKattHeterFia1")).toEqual({ kind: "weak", reason: "too-uniform" });
   });
+
+  it("keeps the generated fast path for the app's exact form only", async () => {
+    // Right length, no entropy: wears the base64url alphabet, decodes to a repeating
+    // byte pattern. Must not skip the gate and PBKDF2 the way true randomness does.
+    expect(secretStrength("a".repeat(43)).kind).toBe("weak");
+    expect(await deriveSyncKeys("a".repeat(43))).toBeNull();
+
+    // Strong but the wrong length for the app's form: treated as brought text.
+    expect(secretStrength("A1-_".repeat(11)).kind).toBe("strong-text");
+  });
 });
 
 describe("encrypt/decrypt roundtrip", () => {

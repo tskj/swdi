@@ -151,19 +151,17 @@ The GET selects `auth_hash` first inside one transaction snapshot and only fetch
 blob columns after the match, so a wrong-token GET costs the same regardless of blob
 size.
 
-### 23. Generated-key fast path skips the entropy gate [MEDIUM]
-Any valid base64url string decoding to >=16 bytes is classified `generated` and returned before
-any entropy check, then fed to HKDF with no PBKDF2 stretching (`shared/src/sync.ts:86-87`). A
-low-entropy base64url-shaped string ("aaaa...") is treated as a strong generated key.
-Fix: require the app-generated form (43-char / 32-byte) for the fast path, or apply a minimal
-entropy floor even on the generated branch.
+### 23. Generated-key fast path skips the entropy gate [MEDIUM] — DONE 2026-07-12
+The fast path now requires the app's exact form: 32 base64url bytes with at least 10
+distinct byte values (true 32-byte randomness carries about 30; "aaaa..." decodes to
+3). Everything else is brought text and faces the gate plus PBKDF2. Note: base64url
+strings of other lengths that previously classified as generated now derive
+differently; acceptable pre-release, and the app's own keys are unaffected.
 
-### 24. Registry payment.url is unvalidated, rendered as href [MEDIUM]
-`shared/src/registry.ts:21` is `z.string()` (no scheme check); rendered as `href`
-(`DashboardClient.tsx:424`, `budget-section.tsx:276`). Repo-controlled today, but the design goal
-is a community-edited commons, at which point `javascript:` / look-alike phishing URLs become
-stored XSS / payment redirection on a "Pay" button.
-Fix: constrain the schema to `https:` / `bitcoin:` before community editing opens.
+### 24. Registry payment.url is unvalidated, rendered as href [MEDIUM] — DONE 2026-07-12
+`paymentMethodSchema` now requires `https://` for web channels and `bitcoin:` for
+bitcoin, ahead of community editing. The registry data test validates the shipped
+JSON against it.
 
 ### 25. Security-relevant paths are untested [MEDIUM] — DONE 2026-07-12
 `e2e/api.spec.ts` (playwright request-only, real app + database): wrong-token 404

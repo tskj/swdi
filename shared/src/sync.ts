@@ -96,8 +96,15 @@ export type SecretStrength =
 export function secretStrength(secret: string): SecretStrength {
   const s = secret.trim();
 
+  // Only the app's own generated form takes the fast path: exactly 32 base64url
+  // bytes, with the byte diversity real randomness cannot miss (a uniform or
+  // patterned string decodes to a handful of distinct bytes; 32 random bytes carry
+  // about 30, and falling below 10 has vanishing probability). Anything else that
+  // merely wears the base64url alphabet is brought text and faces the gate plus
+  // PBKDF2 below. This classification must stay stable forever: generated keys feed
+  // HKDF directly, and rerouting one would orphan its blob.
   const raw = fromBase64Url(s);
-  if (raw !== null && raw.length >= 16) return { kind: "generated" };
+  if (raw !== null && raw.length === 32 && distinctByteCount(raw) >= 10) return { kind: "generated" };
 
   // Whitespace means a word phrase, and word phrases are guessable no matter what the
   // charset arithmetic below claims. The symbol requirement exists for the same reason:
@@ -155,6 +162,10 @@ function ensureBytes(bytes: Uint8Array<ArrayBuffer> | null): Uint8Array<ArrayBuf
   if (bytes === null) throw new Error("secretStrength said generated, decode disagreed");
 
   return bytes;
+}
+
+function distinctByteCount(bytes: Uint8Array): number {
+  return new Set(bytes).size;
 }
 
 export async function encryptPayload(encKey: CryptoKey, payload: AnySyncPayload): Promise<{ iv: string; data: string }> {

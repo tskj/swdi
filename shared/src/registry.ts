@@ -16,10 +16,17 @@ export const paymentKindSchema = z.enum([
   "custom",
 ]);
 
+// The url renders as an href on Pay buttons, and the registry is meant to become a
+// community-edited commons: an unconstrained scheme here would be stored XSS
+// (javascript:) or payment redirection waiting for that day. Web channels take
+// https, bitcoin takes a bitcoin: URI (bare addresses are written as URIs).
 export const paymentMethodSchema = z.object({
   kind: paymentKindSchema,
-  url:  z.string(), // the donation URL, or for bitcoin the address / bitcoin: URI
-});
+  url:  z.string(),
+}).refine(
+  (m) => (m.kind === "bitcoin" ? m.url.startsWith("bitcoin:") : m.url.startsWith("https://")),
+  { message: "bitcoin methods take a bitcoin: URI; every other channel takes an https URL" },
+);
 
 export const registryEntrySchema = z.object({
   name:  z.string(),
