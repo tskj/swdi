@@ -14,11 +14,24 @@ import { mergeRecords } from "./read-model";
 // never read, and nothing ties the blob to a person. Losing the secret loses the data;
 // that is the honest price of the design, and local data plus JSON export remain.
 
-export const syncPayloadSchema = z.object({
+// The payload is versioned because old clients strip fields they do not know: a v1
+// client fed v2 data would silently drop the tombstones and resurrect deletions, so it
+// must refuse instead (its schema parse fails and sync reports unreadable data). v2
+// adds `deleted`, the page tombstones: url -> when the page was removed.
+const syncPayloadV1Schema = z.object({
   v: z.literal(1),
   exportedAt: z.string(),
   pages: z.array(pageRecordSchema),
 });
+
+const syncPayloadV2Schema = z.object({
+  v: z.literal(2),
+  exportedAt: z.string(),
+  pages: z.array(pageRecordSchema),
+  deleted: z.record(z.string(), z.string()),
+});
+
+export const syncPayloadSchema = z.discriminatedUnion("v", [syncPayloadV1Schema, syncPayloadV2Schema]);
 
 // The server-side ceiling on one ciphertext blob. Clients must trim what they upload
 // to fit under it (the extension drops the oldest-visited pages from the sync payload,
@@ -37,7 +50,8 @@ export const syncPutRequestSchema = z.object({
   data: z.string().max(SYNC_DATA_MAX_CHARS),
 });
 
-export type SyncPayload    = z.infer<typeof syncPayloadSchema>;
+export type SyncPayload    = z.infer<typeof syncPayloadV2Schema>;
+export type AnySyncPayload = z.infer<typeof syncPayloadSchema>;
 export type SyncEnvelope   = z.infer<typeof syncEnvelopeSchema>;
 export type SyncPutRequest = z.infer<typeof syncPutRequestSchema>;
 
@@ -130,7 +144,7 @@ function ensureBytes(bytes: Uint8Array<ArrayBuffer> | null): Uint8Array<ArrayBuf
   return bytes;
 }
 
-export async function encryptPayload(encKey: CryptoKey, payload: SyncPayload): Promise<{ iv: string; data: string }> {
+export async function encryptPayload(encKey: CryptoKey, payload: AnySyncPayload): Promise<{ iv: string; data: string }> {
   const iv    = crypto.getRandomValues(new Uint8Array(12));
   const bytes = await gzipBytes(new TextEncoder().encode(JSON.stringify(payload)));
 
@@ -161,7 +175,12 @@ export async function decryptPayload(encKey: CryptoKey, iv: string, data: string
   catch { return null; }
 
   const parsed = syncPayloadSchema.safeParse(json);
-  return parsed.success ? parsed.data : null;
+  if (!parsed.success) return null;
+
+  // Normalize to the current revision: a v1 blob simply has no tombstones yet.
+  if (parsed.data.v === 1) return { v: 2, exportedAt: parsed.data.exportedAt, pages: parsed.data.pages, deleted: {} };
+
+  return parsed.data;
 }
 
 async function gzipBytes(bytes: Uint8Array): Promise<Uint8Array<ArrayBuffer>> {
@@ -172,6 +191,39 @@ async function gzipBytes(bytes: Uint8Array): Promise<Uint8Array<ArrayBuffer>> {
 async function gunzipBytes(bytes: Uint8Array): Promise<Uint8Array<ArrayBuffer>> {
   const stream = new Blob([bytes as BlobPart]).stream().pipeThrough(new DecompressionStream("gzip"));
   return new Uint8Array(await new Response(stream).arrayBuffer());
+}
+
+/** Union of two url -> deletedAt tombstone maps, the later deletion winning per url. */
+export function mergeDeleted(a: Record<string, string>, b: Record<string, string>): Record<string, string> {
+  const merged: Record<string, string> = { ...a };
+  for (const [url, at] of Object.entries(b)) {
+    const existing = merged[url];
+    if (existing === undefined || at > existing) merged[url] = at;
+  }
+
+  return merged;
+}
+
+/** A tombstone kills a page unless the page was visited again after the deletion. */
+export function pageAlive(record: PageRecord, deletedAt: string | undefined): boolean {
+  return deletedAt === undefined || record.lastVisitAt > deletedAt;
+}
+
+/**
+ * Resolve pages against page tombstones: killed pages drop out of the set, and
+ * tombstones a recreated page has outlived drop out of the map (the fresh visit
+ * dominates any stale copy on its own, so the tombstone has nothing left to do).
+ */
+export function applyDeleted(pages: PageRecord[], deleted: Record<string, string>): { pages: PageRecord[]; deleted: Record<string, string> } {
+  const alive     = pages.filter((page) => pageAlive(page, deleted[page.url]));
+  const recreated = new Set(alive.map((page) => page.url));
+
+  const kept: Record<string, string> = {};
+  for (const [url, at] of Object.entries(deleted)) {
+    if (!recreated.has(url)) kept[url] = at;
+  }
+
+  return { pages: alive, deleted: kept };
 }
 
 /**

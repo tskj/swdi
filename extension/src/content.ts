@@ -24,7 +24,7 @@ import {
   setPagePausedMessageSchema,
   setSitePausedMessageSchema,
 } from "./lib/messages";
-import { loadPageRecord, loadSettings, loadSummaries, removePage, savePage, savePausedHosts, savePausedPages, updateSettings, watchSettings } from "./lib/storage";
+import { clearTombstone, loadPageRecord, loadSettings, loadSummaries, removePage, savePage, savePausedHosts, savePausedPages, updateSettings, watchSettings } from "./lib/storage";
 
 // A paragraph counts as visible for dwell purposes at half its area, or half a viewport
 // for blocks taller than the screen. The extra thresholds make the observer re-fire while
@@ -180,11 +180,19 @@ async function main() {
 
   const record = stored ?? freshRecord(pageUrl);
 
+  // This visit recreates the page, so any pending deletion tombstone is obsolete.
+  void clearTombstone(pageUrl);
+
   // A backfilled page materializes on its first real visit: every paragraph now on
   // the page becomes read as of the vouched time, so sections and change detection
-  // work from here on.
+  // work from here on. Paragraphs un-read after the vouch stay un-read.
   if (record.assumedReadAt !== null) {
-    for (const p of paragraphs) record.read[p.hash] ??= { at: record.assumedReadAt, dwellMs: 0, words: p.words };
+    for (const p of paragraphs) {
+      const clearedAt = record.cleared[p.hash];
+      if (clearedAt !== undefined && clearedAt >= record.assumedReadAt) continue;
+
+      record.read[p.hash] ??= { at: record.assumedReadAt, dwellMs: 0, words: p.words };
+    }
     record.lastReadAt ??= record.assumedReadAt;
   }
 
@@ -455,10 +463,11 @@ async function main() {
     return { read, reading };
   }
 
-  function clearRead(t: Tracked) {
+  function clearRead(t: Tracked, at: string) {
     t.read      = false;
     t.accruedMs = 0;
     delete record.read[t.p.hash];
+    record.cleared[t.p.hash] = at; // tombstone: stale copies of this read stay dead in merges
     t.p.el.classList.remove("swdi-read");
     io.observe(t.p.el);
   }
@@ -466,11 +475,13 @@ async function main() {
   // "I've read this far" (the page context-menu item): the reader right-clicks the last
   // thing they read. Everything at or above that point becomes read and everything below
   // becomes unread, so the click is an exact place to resume from with no dwell overshoot
-  // left marked beneath it. A definitive statement, so it saves directly rather than
-  // through flush's union merge, which would resurrect the reads it just cleared.
+  // left marked beneath it. The clears are tombstoned, so they hold through every merge:
+  // concurrent tabs, sync, and stale devices. A click above the first paragraph resets
+  // the page, every paragraph cleared and no resume point, a way to start a reread.
   async function markReadThisFar(pageY: number): Promise<void> {
-    let deepest: string | null = null;
+    const at = nowIso();
 
+    let deepest: string | null = null;
     for (const t of tracked.values()) {
       const top = t.p.el.getBoundingClientRect().top + window.scrollY;
 
@@ -478,18 +489,20 @@ async function main() {
         if (!t.read) markRead(t);
         deepest = t.p.hash;
       } else if (t.read) {
-        clearRead(t);
+        clearRead(t, at);
       }
     }
 
-    // deepest === null means the click was above the first paragraph: "I've read this
-    // far" pointing at nothing resets the page, every paragraph cleared and no resume
-    // point, which is a handy way to start a reread from scratch.
-    if (persistTimer !== null) { clearTimeout(persistTimer); persistTimer = null; }
+    // An explicit partial statement supersedes any whole-page vouch: revoking it keeps
+    // the page from re-materializing the cleared paragraphs on the next visit, and the
+    // revoke timestamp keeps a stale device's old vouch from winning the merge.
+    if (record.assumedReadAt !== null) {
+      record.assumedReadAt    = null;
+      record.assumedClearedAt = at;
+    }
+
     record.furthestReadHash = deepest;
-    await savePage(record, summarize(record));
-    sendBadge();
-    chrome.runtime.sendMessage({ type: "swdi:page-flushed" }).catch(() => {});
+    await flush();
   }
 
   current = {
@@ -553,8 +566,14 @@ async function vouchFor(pageUrl: string, fallbackTitle: string): Promise<PageRec
 
   record.assumedReadAt ??= at;
   record.lastReadAt    ??= at;
-  for (const entry of record.outline) record.read[entry.h] ??= { at: record.assumedReadAt, dwellMs: 0, words: entry.w };
+  for (const entry of record.outline) {
+    const clearedAt = record.cleared[entry.h];
+    if (clearedAt !== undefined && clearedAt >= record.assumedReadAt) continue; // un-read after the vouch stays un-read
 
+    record.read[entry.h] ??= { at: record.assumedReadAt, dwellMs: 0, words: entry.w };
+  }
+
+  await clearTombstone(pageUrl); // vouching recreates a deleted page
   await savePage(record, summarize(record));
   chrome.runtime.sendMessage({ type: "swdi:page-flushed" }).catch(() => {});
   return record;
@@ -643,9 +662,11 @@ function freshRecord(url: string): PageRecord {
     outline: [],
     read:    {},
     seen:    {},
+    cleared: {},
 
     furthestReadHash: null,
-    assumedReadAt: null,
+    assumedReadAt:    null,
+    assumedClearedAt: null,
   };
 }
 

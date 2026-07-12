@@ -21,14 +21,21 @@ export const pageRecordSchema = z.object({
 
   outline: z.array(outlineEntrySchema),                                    // structure as of the last visit
   read:    z.record(z.string(), z.object({ at: z.string(), dwellMs: z.number(), words: z.number().default(0) })), // words stamped at read time; pre-existing records default to 0 and self-heal on revisit
-
   seen:    z.record(z.string(), z.string()),                               // hash -> first sighting on this page
+
+  // Paragraph tombstones: hash -> when the reader un-read it ("I've read this far"
+  // clears everything below the click). A read survives a merge only when it happened
+  // after the clear, so cleared paragraphs stay cleared across devices.
+  cleared: z.record(z.string(), z.string()).default({}),
 
   furthestReadHash: z.string().nullable(),
 
   // Backfill: the reader vouches they read this page without dwell evidence. Old
   // records parse via the default; reads materialize on the next real visit.
-  assumedReadAt: z.string().nullable().default(null),
+  // assumedClearedAt revokes the vouch ("I've read this far" supersedes it); a vouch
+  // survives a merge only when it happened after the revoke.
+  assumedReadAt:    z.string().nullable().default(null),
+  assumedClearedAt: z.string().nullable().default(null),
 });
 
 export const sectionStatsSchema = z.object({

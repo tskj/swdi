@@ -1,20 +1,33 @@
 import {
   PageRecord,
   SYNC_DATA_MAX_CHARS,
+  SyncPayload,
+  applyDeleted,
   decryptPayload,
   deriveSyncKeys,
   encryptPayload,
+  mergeDeleted,
   nowIso,
+  pageAlive,
   syncEnvelopeSchema,
 } from "@swdi/shared";
 import { SyncResult } from "./messages";
-import { foldRemotePages, loadAllPages, loadSettings, loadSyncMeta, saveSyncMeta } from "./storage";
+import {
+  foldRemotePages,
+  loadAllPages,
+  loadSettings,
+  loadSyncMeta,
+  loadTombstones,
+  removePageRecord,
+  saveSyncMeta,
+  saveTombstones,
+} from "./storage";
 
 // Pull, merge, push. The server never sees plaintext: everything here derives from the
 // sync key on this device, and only ciphertext plus the bearer token cross the wire.
 // A 409 means another device pushed since our pull; one pull-merge-retry resolves it.
 
-type Remote = { version: number; pages: PageRecord[] | null } | "unreadable";
+type Remote = { version: number; payload: SyncPayload | null } | "unreadable";
 
 export async function syncNow(): Promise<SyncResult> {
   const settings = await loadSettings();
@@ -31,11 +44,24 @@ export async function syncNow(): Promise<SyncResult> {
       const remote = await fetchRemote(url, auth, keys.encKey);
       if (remote === "unreadable") return failure("the remote data does not match this sync key");
 
-      if (remote.pages !== null && remote.pages.length > 0) await foldRemotePages(remote.pages);
+      // Deletions merge first (latest delete-vs-recreate wins), then gate both page
+      // sets: dead remote pages never fold in, and dead local pages are removed here,
+      // which is how a deletion made on another device lands on this one.
+      const deleted = mergeDeleted(await loadTombstones(), remote.payload?.deleted ?? {});
+
+      const remotePages = (remote.payload?.pages ?? []).filter((page) => pageAlive(page, deleted[page.url]));
+      if (remotePages.length > 0) await foldRemotePages(remotePages);
 
       // Read the local set only after folding, so the upload carries the merge result.
-      const pages    = await loadAllPages();
-      const envelope = await sealUnderLimit(keys.encKey, pages);
+      const pages = await loadAllPages();
+      for (const page of pages) {
+        if (!pageAlive(page, deleted[page.url])) await removePageRecord(page.url);
+      }
+
+      const resolved = applyDeleted(pages, deleted);
+      await saveTombstones(resolved.deleted);
+
+      const envelope = await sealUnderLimit(keys.encKey, resolved.pages, resolved.deleted);
       if (envelope === null) return failure("your reading history exceeds the sync size limit");
 
       const response = await fetch(url, {
@@ -63,11 +89,11 @@ export async function syncNow(): Promise<SyncResult> {
  * ciphertext fits the server's cap. Local storage keeps everything; only the synced
  * copy shrinks. Null when even a single page will not fit.
  */
-async function sealUnderLimit(encKey: CryptoKey, pages: PageRecord[]): Promise<{ iv: string; data: string } | null> {
+async function sealUnderLimit(encKey: CryptoKey, pages: PageRecord[], deleted: Record<string, string>): Promise<{ iv: string; data: string } | null> {
   let candidate = [...pages].sort((a, b) => b.lastVisitAt.localeCompare(a.lastVisitAt));
 
   for (;;) {
-    const envelope = await encryptPayload(encKey, { v: 1, exportedAt: nowIso(), pages: candidate });
+    const envelope = await encryptPayload(encKey, { v: 2, exportedAt: nowIso(), pages: candidate, deleted });
     if (envelope.data.length <= SYNC_DATA_MAX_CHARS) return envelope;
     if (candidate.length <= 1) return null;
 
@@ -77,7 +103,7 @@ async function sealUnderLimit(encKey: CryptoKey, pages: PageRecord[]): Promise<{
 
 async function fetchRemote(url: string, auth: Record<string, string>, encKey: CryptoKey): Promise<Remote> {
   const response = await fetch(url, { headers: auth });
-  if (response.status === 404) return { version: 0, pages: null };
+  if (response.status === 404) return { version: 0, payload: null };
   if (!response.ok) throw new Error(`the sync store answered ${response.status}`);
 
   const envelope = syncEnvelopeSchema.safeParse(await response.json().catch(() => null));
@@ -86,7 +112,7 @@ async function fetchRemote(url: string, auth: Record<string, string>, encKey: Cr
   const payload = await decryptPayload(encKey, envelope.data.iv, envelope.data.data);
   if (payload === null) return "unreadable";
 
-  return { version: envelope.data.version, pages: payload.pages };
+  return { version: envelope.data.version, payload };
 }
 
 async function failure(error: string): Promise<SyncResult> {

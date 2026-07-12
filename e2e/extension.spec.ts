@@ -188,6 +188,17 @@ test("backfill: click links to vouch for them, and mark the current page read", 
   });
   expect(stub?.assumedReadAt).not.toBeNull();
 
+  // A second click undoes the vouch: the record disappears and a deletion tombstone
+  // takes its place, so the undo holds through sync.
+  await page.locator(`a[href*="no-cosmic-plan"]`).first().click();
+  const afterUndo = await worker.evaluate(async () => {
+    const url  = "https://meaningness.com/no-cosmic-plan";
+    const got  = await chrome.storage.local.get([`swdi:page:${url}`, "swdi:tombstones"]);
+    return { record: got[`swdi:page:${url}`] ?? null, tombstone: got["swdi:tombstones"]?.[url] ?? null };
+  });
+  expect(afterUndo.record).toBeNull();
+  expect(afterUndo.tombstone).not.toBeNull();
+
   await page.keyboard.press("Escape");
   await expect(page.locator(".swdi-backfill")).not.toBeAttached();
 
@@ -252,4 +263,78 @@ test("'I've read this far' marks everything above read and clears everything bel
   expect(deepestReadTop).toBeLessThanOrEqual(clickY + 3);
 
   await page.close();
+});
+
+test("sync v2: a deletion tombstone holds through push, merge, and a fresh pull", async () => {
+  // Runs against the same local server the dashboard spec uses (playwright's webServer).
+  const SYNC_URL = "https://meaningness.com/preview-stage-fright";
+  const extId    = new URL(worker.url()).host;
+
+  // Point sync at the e2e server with a fresh generated key.
+  await worker.evaluate(async (base) => {
+    const bytes = crypto.getRandomValues(new Uint8Array(32));
+    let bin = "";
+    for (const b of bytes) bin += String.fromCharCode(b);
+    const secret = btoa(bin).replaceAll("+", "-").replaceAll("/", "_").replace(/=+$/, "");
+    await chrome.storage.local.set({ "swdi:settings": { overlay: false, syncSecret: secret, syncBaseUrl: base, blockedHosts: [], blockedPages: [], readingWpm: 260 } });
+  }, "http://localhost:3105");
+
+  // The background worker cannot message itself, so drive syncNow the way the popup
+  // does: from an extension page context.
+  const popup = await context.newPage();
+  await popup.goto(`chrome-extension://${extId}/popup.html`);
+  const syncNow = () => popup.evaluate(() => chrome.runtime.sendMessage({ type: "swdi:sync-now" }));
+
+  const localState = (url: string) => worker.evaluate(async (u) => {
+    const got = await chrome.storage.local.get([`swdi:page:${u}`, "swdi:tombstones"]);
+    return { record: got[`swdi:page:${u}`] ?? null, tombstone: got["swdi:tombstones"]?.[u] ?? null };
+  }, url);
+
+  // Seed one read page and push it to the server.
+  await worker.evaluate(async (url) => {
+    const at = "2026-06-01T00:00:00.000Z";
+    const record = {
+      v: 1, url, title: "Tombstone page",
+      firstSeenAt: at, lastVisitAt: at, lastReadAt: at,
+      outline: [{ h: "t1", w: 50, s: null }],
+      read:    { t1: { at, dwellMs: 5000, words: 50 } },
+      seen:    { t1: at },
+      cleared: {},
+      furthestReadHash: "t1",
+      assumedReadAt: null, assumedClearedAt: null,
+    };
+    await chrome.storage.local.set({ [`swdi:page:${url}`]: record });
+  }, SYNC_URL);
+  expect((await syncNow())?.ok).toBe(true);
+
+  // Delete it the way removePage does: record gone, tombstone stamped after the visit.
+  await worker.evaluate(async (url) => {
+    await chrome.storage.local.remove([`swdi:page:${url}`, `swdi:idx:${url}`]);
+    await chrome.storage.local.set({ "swdi:tombstones": { [url]: "2026-06-02T00:00:00.000Z" } });
+  }, SYNC_URL);
+
+  // The next sync pulls the server's copy of the page; the tombstone must keep it dead.
+  expect((await syncNow())?.ok).toBe(true);
+  const afterMerge = await localState(SYNC_URL);
+  expect(afterMerge.record).toBeNull();
+  expect(afterMerge.tombstone).not.toBeNull();
+
+  // A fresh device (no pages, no tombstones) pulls: the page must not come back, and
+  // the tombstone must arrive so this device re-propagates the deletion too.
+  await worker.evaluate(async (url) => {
+    await chrome.storage.local.remove([`swdi:page:${url}`, "swdi:tombstones"]);
+  }, SYNC_URL);
+  expect((await syncNow())?.ok).toBe(true);
+  const freshDevice = await localState(SYNC_URL);
+  expect(freshDevice.record).toBeNull();
+  expect(freshDevice.tombstone).not.toBeNull();
+
+  // Turn sync back off so later tests stay local.
+  await worker.evaluate(async () => {
+    const got      = await chrome.storage.local.get("swdi:settings");
+    const settings = got["swdi:settings"];
+    settings.syncSecret = null;
+    await chrome.storage.local.set({ "swdi:settings": settings });
+  });
+  await popup.close();
 });

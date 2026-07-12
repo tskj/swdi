@@ -5,6 +5,7 @@ import {
   PageSummary,
   Settings,
   mergePages,
+  nowIso,
   pageRecordSchema,
   pageSummarySchema,
   settingsSchema,
@@ -36,11 +37,20 @@ export async function savePage(record: PageRecord, summary: PageSummary): Promis
 }
 
 /**
- * Remove a page entirely (backfill undo). Note the honest limitation: sync merges are
- * unions with no tombstones, so a page that already synced can return from the server;
- * undo within the session, before the debounced sync fires, sticks.
+ * Remove a page on the user's say-so (backfill undo). Leaves a tombstone so the
+ * deletion holds through sync: a stale copy on the server or another device stays
+ * dead unless the page is actually visited again after this moment.
  */
 export async function removePage(url: string): Promise<void> {
+  await removePageRecord(url);
+
+  const tombstones = await loadTombstones();
+  tombstones[url]  = nowIso();
+  await saveTombstones(tombstones);
+}
+
+/** Remove a page's stored data without stamping a tombstone (sync applying an existing one). */
+export async function removePageRecord(url: string): Promise<void> {
   await chrome.storage.local.remove([PAGE_PREFIX + url, IDX_PREFIX + url]);
 }
 
@@ -150,6 +160,32 @@ export async function foldRemotePages(remote: PageRecord[]): Promise<void> {
 
     await savePage(merged, summarize(merged));
   }
+}
+
+// Page tombstones, one map for all of them: url -> when the page was deleted. They ride
+// inside the sync payload (v2) so every device applies and re-propagates deletions.
+const TOMBSTONES_KEY = "swdi:tombstones";
+
+const tombstonesSchema = z.record(z.string(), z.string());
+
+export async function loadTombstones(): Promise<Record<string, string>> {
+  const got    = await chrome.storage.local.get(TOMBSTONES_KEY);
+  const parsed = tombstonesSchema.safeParse(got[TOMBSTONES_KEY]);
+
+  return parsed.success ? parsed.data : {};
+}
+
+export async function saveTombstones(tombstones: Record<string, string>): Promise<void> {
+  await chrome.storage.local.set({ [TOMBSTONES_KEY]: tombstones });
+}
+
+/** A visit recreates the page, so its tombstone has nothing left to do. */
+export async function clearTombstone(url: string): Promise<void> {
+  const tombstones = await loadTombstones();
+  if (!(url in tombstones)) return;
+
+  delete tombstones[url];
+  await saveTombstones(tombstones);
 }
 
 const SYNC_META_KEY = "swdi:sync-meta";

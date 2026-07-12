@@ -76,14 +76,31 @@ export function summarize(record: PageRecord): PageSummary {
 /**
  * Fold a concurrently-stored copy of the same page record into `mine` before saving.
  * Every tab of a page holds its own full record and flushes it whole, so without this
- * union the last flush wins and silently drops the other tab's reads. Reads and
- * sightings union (earliest timestamp wins per hash), lastReadAt takes the latest,
- * and the furthest position resolves against mine's outline order.
+ * union the last flush wins and silently drops the other tab's reads.
+ *
+ * Reads union per hash, but through the paragraph tombstones: the latest clear wins,
+ * a read copy survives only when it happened after that clear, and the earliest
+ * surviving copy keeps the original reading time. So an un-read paragraph stays
+ * un-read against a stale device's old copy, while a genuine re-read beats the clear.
+ * Sightings union earliest-wins, lastReadAt takes the latest, the whole-page vouch
+ * follows the same survive-the-revoke rule, and the furthest position is recomputed
+ * as the deepest read paragraph so it can never point past what is actually read.
  */
 export function mergeRecords(mine: PageRecord, stored: PageRecord): void {
-  for (const [hash, read] of Object.entries(stored.read)) {
-    const existing = mine.read[hash];
-    if (existing === undefined || read.at < existing.at) mine.read[hash] = read;
+  for (const [hash, clearedAt] of Object.entries(stored.cleared)) {
+    const existing = mine.cleared[hash];
+    if (existing === undefined || clearedAt > existing) mine.cleared[hash] = clearedAt;
+  }
+
+  for (const hash of new Set([...Object.keys(mine.read), ...Object.keys(stored.read)])) {
+    const clearedAt  = mine.cleared[hash];
+    const candidates = [mine.read[hash], stored.read[hash]]
+      .filter((read) => read !== undefined)
+      .filter((read) => clearedAt === undefined || read.at > clearedAt);
+
+    const earliest = candidates.sort((a, b) => a.at.localeCompare(b.at))[0];
+    if (earliest === undefined) delete mine.read[hash];
+    else                        mine.read[hash] = earliest;
   }
 
   for (const [hash, seenAt] of Object.entries(stored.seen)) {
@@ -97,14 +114,23 @@ export function mergeRecords(mine: PageRecord, stored: PageRecord): void {
 
   if (mine.firstSeenAt > stored.firstSeenAt) mine.firstSeenAt = stored.firstSeenAt;
 
-  if (stored.assumedReadAt !== null && (mine.assumedReadAt === null || stored.assumedReadAt < mine.assumedReadAt)) {
-    mine.assumedReadAt = stored.assumedReadAt;
+  if (stored.assumedClearedAt !== null && (mine.assumedClearedAt === null || stored.assumedClearedAt > mine.assumedClearedAt)) {
+    mine.assumedClearedAt = stored.assumedClearedAt;
   }
 
+  const vouches = [mine.assumedReadAt, stored.assumedReadAt]
+    .filter((at) => at !== null)
+    .filter((at) => mine.assumedClearedAt === null || at > mine.assumedClearedAt);
+  mine.assumedReadAt = vouches.sort()[0] ?? null;
+
   const index = new Map(mine.outline.map((entry, i) => [entry.h, i] as const));
-  const ours   = mine.furthestReadHash   === null ? -1 : index.get(mine.furthestReadHash)   ?? -1;
-  const theirs = stored.furthestReadHash === null ? -1 : index.get(stored.furthestReadHash) ?? -1;
-  if (theirs > ours) mine.furthestReadHash = stored.furthestReadHash;
+  let furthest: string | null = null;
+  let deepest = -1;
+  for (const hash of Object.keys(mine.read)) {
+    const i = index.get(hash) ?? -1;
+    if (i > deepest) { deepest = i; furthest = hash; }
+  }
+  mine.furthestReadHash = furthest;
 }
 
 /**

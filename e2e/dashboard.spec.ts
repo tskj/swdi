@@ -17,8 +17,10 @@ function record(url: string, title: string, total: number, read: number, at: str
     firstSeenAt: at, lastVisitAt: at, lastReadAt: at,
     outline, read: readMap,
     seen: Object.fromEntries(outline.map((e) => [e.h, at])),
+    cleared: {},
     furthestReadHash: outline[read - 1]?.h ?? null,
     assumedReadAt: null,
+    assumedClearedAt: null,
   };
 }
 

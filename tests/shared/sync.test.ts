@@ -2,10 +2,12 @@ import { describe, expect, it } from "vitest";
 import {
   PageRecord,
   SyncPayload,
+  applyDeleted,
   decryptPayload,
   deriveSyncKeys,
   encryptPayload,
   generateSyncSecret,
+  mergeDeleted,
   mergePages,
   secretStrength,
 } from "@swdi/shared";
@@ -23,15 +25,17 @@ function page(url: string, partial: Partial<PageRecord> = {}): PageRecord {
     outline: [{ h: "a", w: 50, s: null }],
     read:    {},
     seen:    {},
+    cleared: {},
 
     furthestReadHash: null,
-    assumedReadAt: null,
+    assumedReadAt:    null,
+    assumedClearedAt: null,
     ...partial,
   };
 }
 
 function payload(pages: PageRecord[]): SyncPayload {
-  return { v: 1, exportedAt: "2026-07-04T00:00:00.000Z", pages };
+  return { v: 2, exportedAt: "2026-07-04T00:00:00.000Z", pages, deleted: {} };
 }
 
 describe("deriveSyncKeys", () => {
@@ -125,6 +129,18 @@ describe("encrypt/decrypt roundtrip", () => {
     expect(reopened).toEqual(big);
   });
 
+  it("opens a v1 blob and upgrades it to v2 with no tombstones", async () => {
+    const keys = await deriveSyncKeys(generateSyncSecret());
+    if (keys === null) throw new Error("keys");
+
+    const pages    = [page("https://example.com/a")];
+    const v1       = { v: 1 as const, exportedAt: "2026-07-04T00:00:00.000Z", pages };
+    const sealed   = await encryptPayload(keys.encKey, v1);
+    const reopened = await decryptPayload(keys.encKey, sealed.iv, sealed.data);
+
+    expect(reopened).toEqual({ v: 2, exportedAt: v1.exportedAt, pages, deleted: {} });
+  });
+
   it("returns null for the wrong key and for tampered ciphertext", async () => {
     const keysA = await deriveSyncKeys(generateSyncSecret());
     const keysB = await deriveSyncKeys(generateSyncSecret());
@@ -162,5 +178,37 @@ describe("mergePages", () => {
     expect(merged.length).toBe(1);
     expect(record?.outline.map((e) => e.h)).toEqual(["new"]);
     expect(Object.keys(record?.read ?? {}).sort()).toEqual(["new", "old"]);
+  });
+});
+
+describe("page tombstones", () => {
+  it("merges deletion maps with the latest deletion winning", () => {
+    const merged = mergeDeleted(
+      { "https://a.com/x": "2026-03-01T00:00:00.000Z", "https://a.com/y": "2026-05-01T00:00:00.000Z" },
+      { "https://a.com/x": "2026-04-01T00:00:00.000Z" },
+    );
+
+    expect(merged["https://a.com/x"]).toBe("2026-04-01T00:00:00.000Z");
+    expect(merged["https://a.com/y"]).toBe("2026-05-01T00:00:00.000Z");
+  });
+
+  it("drops a page deleted after its last visit, and keeps the tombstone", () => {
+    const stale   = page("https://a.com/x", { lastVisitAt: "2026-03-01T00:00:00.000Z" });
+    const deleted = { "https://a.com/x": "2026-04-01T00:00:00.000Z" };
+
+    const resolved = applyDeleted([stale], deleted);
+
+    expect(resolved.pages).toEqual([]);
+    expect(resolved.deleted).toEqual(deleted);
+  });
+
+  it("keeps a page visited again after its deletion, and prunes the tombstone", () => {
+    const recreated = page("https://a.com/x", { lastVisitAt: "2026-05-01T00:00:00.000Z" });
+    const deleted   = { "https://a.com/x": "2026-04-01T00:00:00.000Z" };
+
+    const resolved = applyDeleted([recreated], deleted);
+
+    expect(resolved.pages.map((p) => p.url)).toEqual(["https://a.com/x"]);
+    expect(resolved.deleted).toEqual({});
   });
 });

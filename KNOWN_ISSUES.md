@@ -3,20 +3,14 @@
 Deliberate gaps we know about, so nobody rediscovers them the hard way. Each entry says
 what breaks, why it is the way it is, and what the fix would look like.
 
-## Sync has no tombstones: deletions resurrect
+## An extension older than sync v2 refuses newer blobs
 
-Sync merges are pure unions (`mergePages`/`mergeRecords` in `shared/src/`): every device
-folds the remote set into its local set and uploads the result. Nothing represents "this
-page was deleted" or "this paragraph was un-read", so clearing read-state locally (the
-backfill undo `removePage`, or the below-the-click clearing in "I've read this far",
-`markReadThisFar` in `extension/src/content.ts`) only sticks if it happens before the next
-sync; after that, the cleared reads return from the server on the following merge. Reads
-cleared before they were ever synced never leave the device, so the common case holds.
-
-Fix shape: a sync payload revision (`v: 2`) carrying per-url tombstones with timestamps,
-merged like reads (latest of delete-vs-recreate wins), plus a migration path for v1 blobs.
-Bundle any other payload format wishes into the same revision, since old clients strip
-unknown fields and would silently drop them.
+Sync deletions are tombstoned (payload `v: 2`: page tombstones in `deleted`, paragraph
+tombstones in each record's `cleared`, vouch revocation in `assumedClearedAt`). A client
+from before this revision fails the schema parse on a v2 blob and reports the remote data
+as unreadable rather than syncing. That refusal is deliberate: an old client would strip
+the tombstone fields it does not know and resurrect deletions for every other device.
+The cure is updating the extension.
 
 ## The sync rate limiter is in-memory, single-instance
 
