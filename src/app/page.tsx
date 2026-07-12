@@ -1,6 +1,5 @@
 import { csR, squircle, superellipse3 } from "@/lib/squircle";
-
-const GITHUB_URL = "https://github.com/tskj/swdi";
+import { GITHUB_URL } from "@/lib/links";
 
 export default function Home() {
   return (
@@ -80,8 +79,12 @@ export default function Home() {
         </ul>
 
         <p className="mt-6 text-(--ink-soft)">
-          It currently follows a handful of hypertext book sites, with meaningness.com as
-          the reference. Installing from source takes a minute; the readme has the steps.
+          It runs on every page and decides for itself what looks like readable writing,
+          with meaningness.com as the reference site. Installing from source takes a
+          minute;{" "}
+          <a className="underline underline-offset-4 hover:text-(--ink)" href={`${GITHUB_URL}#readme`}>
+            the readme has the steps
+          </a>.
         </p>
       </section>
 

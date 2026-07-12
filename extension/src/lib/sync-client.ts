@@ -78,7 +78,7 @@ export async function syncNow(): Promise<SyncResult> {
 
       const at = nowIso();
       await saveSyncMeta({ lastSyncAt: at, lastError: null });
-      return { ok: true, at };
+      return { ok: true, at, remotePages: remote.payload?.pages.length ?? 0 };
     }
 
     return failure("another device kept winning the race; will retry later");

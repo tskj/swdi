@@ -25,6 +25,7 @@ import {
 } from "@swdi/shared";
 import { fetchDonationDoc, patchDonationDoc, putDonationDoc } from "./donations-client";
 import { adoptLegacySettlements, pushSettlementPatch } from "./settlements-client";
+import { GITHUB_URL } from "@/lib/links";
 import { csR, squircle, superellipse3 } from "@/lib/squircle";
 import { BudgetSection } from "./budget-section";
 import {
@@ -171,6 +172,13 @@ export function DashboardClient() {
           {stage.registry !== null && (
             <BudgetSection pages={stage.pages} registry={stage.registry} doc={stage.doc} settlements={stage.settlements} onPatch={sendPatch} onSettlementPatch={sendSettlementPatch} />
           )}
+          {stage.registry === null && (
+            <p className="mt-10 font-sans text-[14px] text-(--ink-soft)">
+              The author registry could not be loaded, so monthly support and the people
+              behind your reading are hidden for now. Your reading above is unaffected;
+              reload the page to try again.
+            </p>
+          )}
           <Recent pages={stage.pages} />
           <Sites pages={stage.pages} />
           {stage.registry !== null && <Authors registry={stage.registry} pages={stage.pages} share={stage.doc.share} onShareChange={answerShare} />}
@@ -237,6 +245,14 @@ function Connect(props: {
       </label>
 
       {props.error !== null && <p className="mt-4 text-[14px] text-(--amber)">{props.error}</p>}
+
+      <p className="mt-5 border-t border-(--line) pt-4 font-sans text-[13px] text-(--ink-soft)">
+        No extension yet? The{" "}
+        <Link className="underline underline-offset-4 hover:text-(--ink)" href="/">front page</Link>
+        {" "}explains what SWDI is, and{" "}
+        <a className="underline underline-offset-4 hover:text-(--ink)" href={`${GITHUB_URL}#readme`}>the readme</a>
+        {" "}has the install steps.
+      </p>
     </section>
   );
 }
@@ -267,6 +283,11 @@ function Empty(props: { onBack: () => void }) {
         Nothing is stored under this sync key yet. If it is a fresh key, paste it into
         the extension popup (Sync, then &quot;I already have a key&quot;), read something,
         and come back; your reading will appear here.
+      </p>
+      <p className="mt-3">
+        If you expected your reading to be here, the key is probably mistyped. A wrong
+        key opens its own empty store, with no error to catch it, so copy the key again
+        from the extension popup and retry.
       </p>
       <button className="mt-4 font-sans text-[13px] text-(--ink-soft) underline underline-offset-4" onClick={props.onBack}>
         Try another key

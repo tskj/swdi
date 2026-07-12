@@ -77,35 +77,25 @@ still goes untracked until reload, which the popup copy owns up to (see #9).
 
 ## Tier 3 — first-run and onboarding dead ends
 
-### 9. Install day shows nothing, and the popup lies [MEDIUM]
-The content script only injects into pages loaded after install, so the popup on the current
-article says "SWDI cannot run on this page" (`extension/src/popup/popup.ts:241-243`), which is
-false. With markers default-off + badges hidden when overlay is off (`content.css:25`), a new
-user sees no sign it works. Keep the default-off decision; fix the dead end.
-Fix: for http(s) tabs, say "Reload this page so SWDI can see it"; consider a one-page post-install
-explainer.
+### 9. Install day shows nothing, and the popup lies [MEDIUM] — DONE 2026-07-12
+On an http(s) tab with no content script the popup now says the page loaded before
+SWDI could see it and asks for a reload; "cannot run" is reserved for pages where that
+is true. The post-install explainer was not built (default-off stays, no pre-design).
 
-### 10. Landing page has no install path [HIGH]
-"Installing from source takes a minute; the readme has the steps" (`src/app/page.tsx:84`) links
-nowhere; the only GitHub link is the footer (`:122`). The single conversion action points at an
-unlinked document.
-Fix: link the README / install steps from that sentence.
+### 10. Landing page has no install path [HIGH] — DONE 2026-07-12
+"the readme has the steps" now links to the README (GitHub URL extracted to
+`src/lib/links.ts`, shared with the dashboard's locked state).
 
-### 11. Mistyped key silently creates a fresh identity [HIGH]
-A wrong-but-strong sync key derives a different `syncId`, the server 404s, the client treats it
-as "fresh blob, version 0" (`extension/src/lib/sync-client.ts:106`) and uploads everything under
-the wrong identity; the dashboard shows its generic Empty state
-(`src/app/dashboard/DashboardClient.tsx:85,244-248`). The user believes they are synced; the
-devices never converge.
-Fix: after connect, report what was found ("this key holds N pages" vs "no data yet; if you
-expected some, the key may be mistyped").
+### 11. Mistyped key silently creates a fresh identity [HIGH] — DONE 2026-07-12
+Connecting a key in the popup now reports what the key was found to hold ("This key
+holds N synced pages" against "Nothing is stored under this key yet... check the key
+for typos"), via a `remotePages` count on the sync result. The dashboard's Empty state
+says the same: a wrong key opens its own empty store, so check for a mistype.
 
-### 12. Locked dashboard / registry-fail are dead ends [MEDIUM]
-The Connect card assumes you have the extension, with no install or front-page link
-(`DashboardClient.tsx:176-219`; footer only renders when open, `:155`). When `/api/registry`
-fails, Monthly support and The people behind it just do not render (`:149-154`), so a user
-mid-settlement watches the donation flow vanish with no explanation.
-Fix: degrade with a message; add install/front-page links to the locked state.
+### 12. Locked dashboard / registry-fail are dead ends [MEDIUM] — DONE 2026-07-12
+The Connect card links the front page and the README's install steps. A registry
+fetch failure now explains itself where the donation views would be, and says the
+reading views are unaffected.
 
 ## Tier 4 — stale and misleading copy (two are self-inflicted this session)
 
@@ -119,20 +109,18 @@ Fix: copy and the displayed measure should both follow word count.
 "When monthly budgets arrive, should SWDI include itself in your split?"
 (`DashboardClient.tsx:283`). Budgets have arrived; it renders directly above the budget section.
 
-### 15. Landing contradicts README and manifest [MEDIUM]
-Landing: "follows a handful of hypertext book sites" (`src/app/page.tsx:83`). README: "runs on
-every page and decides for itself" (`README.md:18`); manifest matches `*://*/*`
-(`extension/manifest.json:15`). The landing is the stale one, on the page most visitors see.
+### 15. Landing contradicts README and manifest [MEDIUM] — DONE 2026-07-12 with #10
+The landing now says it runs on every page and decides for itself, matching the README
+and the manifest.
 
 ### 16. "creator" survives in code comments [LOW]
 `shared/src/registry.ts:3,4,26`. Not user-facing, but authors-never-creators is easiest to hold
 when the code says authors too.
 
-### 17. Grammar and singular/plural [LOW]
-"1 paragraphs are new or changed" has no singular form (`extension/src/popup/popup.ts:89`), while
-the link sentences just below do handle it. "For you who reads" / "For you who wants"
-(`src/app/page.tsx:19,32`) reads as a grammar slip in the first two sentences of the site (may be
-a deliberate parallel for the drop caps).
+### 17. Grammar and singular/plural [LOW] — popup half DONE 2026-07-12
+"1 paragraph is new or changed" now has its singular form. "For you who reads" / "For
+you who wants" (`src/app/page.tsx`) left alone: possibly a deliberate parallel for the
+drop caps, needs the author's call.
 
 ## Tier 5 — server hardening (before the domain is shared widely)
 

@@ -23,7 +23,7 @@ async function main() {
   if (tabId === undefined) { showUntracked(); return; }
 
   const state = await pageState(tabId);
-  if (state === null) { showUntracked(); return; }
+  if (state === null) { showUntracked(tab?.url); return; }
 
   wirePageHandlers(state, tabId);
   renderPage(state);
@@ -86,7 +86,9 @@ function renderPage(state: PopupState) {
   if (state.changed > 0) {
     const changed = el("changed");
     changed.hidden      = false;
-    changed.textContent = `${state.changed} paragraphs are new or changed since you read this page.`;
+    changed.textContent = state.changed === 1
+      ? "1 paragraph is new or changed since you read this page."
+      : `${state.changed} paragraphs are new or changed since you read this page.`;
   }
 
   const sentences: string[] = [];
@@ -238,8 +240,15 @@ async function wireReadingSpeed() {
   slider.addEventListener("change", () => void updateSettings({ readingWpm: Number(slider.value) }));
 }
 
-function showUntracked() {
-  el("status").textContent = "SWDI cannot run on this page.";
+// No content script answered. On an ordinary web page that means the page loaded
+// before SWDI was installed or updated (scripts inject only into pages loaded after),
+// so the honest answer is a reload, never "cannot run".
+function showUntracked(tabUrl?: string) {
+  const reloadable = tabUrl !== undefined && /^https?:/.test(tabUrl);
+
+  el("status").textContent = reloadable
+    ? "This page loaded before SWDI could see it. Reload the page and SWDI will follow along."
+    : "SWDI cannot run on this page.";
 }
 
 // ---- sync section -------------------------------------------------------------
@@ -299,8 +308,17 @@ function wireSyncHandlers() {
     settings.syncSecret = secret;
     await saveSettings(settings);
 
-    await requestSync();
+    const result = await requestSync();
     await renderSyncSection();
+
+    // Report what the key was found to hold: a mistyped key derives a fresh empty
+    // identity and would otherwise sync into the void while the user believes their
+    // devices are connected.
+    if (result.ok) {
+      el("sync-status").textContent = result.remotePages > 0
+        ? `Connected. This key holds ${result.remotePages} synced ${result.remotePages === 1 ? "page" : "pages"}.`
+        : "Connected. Nothing is stored under this key yet. If you expected reading from another device, check the key for typos.";
+    }
   });
 
   el("sync-copy").addEventListener("click", async () => {

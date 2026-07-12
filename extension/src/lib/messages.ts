@@ -61,8 +61,12 @@ export const syncNowMessageSchema = z.object({
   type: z.literal("swdi:sync-now"),
 });
 
+// remotePages is how many pages the server already held under this key at pull time:
+// the popup uses it right after a connect to say what the key was found to hold, so a
+// mistyped key (which lands on an empty fresh identity) is caught at the door instead
+// of silently syncing into the void.
 export const syncResultSchema = z.union([
-  z.object({ ok: z.literal(true), at: z.string() }),
+  z.object({ ok: z.literal(true), at: z.string(), remotePages: z.number() }),
   z.object({ ok: z.literal(false), error: z.string() }),
 ]);
 
