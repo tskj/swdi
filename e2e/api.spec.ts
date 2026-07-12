@@ -124,6 +124,33 @@ test("a corrupted donation doc reads as absent, and the next PUT replaces it", a
   expect((await healed.json()).budget.amountMinor).toBe(20_000);
 });
 
+test("registration is priced separately from syncing", async ({ request }) => {
+  // pid-salted address, so a rerun against a still-warm server gets a fresh allowance.
+  const ip = `198.51.100.${(process.pid % 250) + 1}`;
+
+  const created: SyncKeys[] = [];
+  let status = 0;
+  for (let attempt = 0; attempt < 40 && status !== 429; attempt++) {
+    const keys     = await makeKeys();
+    const response = await putBlob(request, keys, ip);
+    status = response.status();
+    if (status === 200) created.push(keys);
+  }
+  expect(status).toBe(429);
+  expect(created.length).toBeLessThanOrEqual(30);
+
+  // Updating an existing blob proves token ownership and is not registration-priced,
+  // so it still passes for the same address.
+  const first = created[0];
+  if (first === undefined) throw new Error("no registration succeeded");
+  expect((await putBlob(request, first, ip, 1)).status()).toBe(200);
+
+  // Leave the shared throwaway database as this test found it.
+  const sql = postgres({ host: "/var/run/postgresql", database: "swdi_e2e" });
+  await sql`delete from sync_blobs where sync_id = any(${created.map((k) => k.syncId)})`;
+  await sql.end();
+});
+
 // Last on purpose: this test spends a whole rate window for its own address.
 test("the sync limiter answers 429 within one window", async ({ request }) => {
   const keys = await makeKeys();

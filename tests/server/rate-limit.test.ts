@@ -35,6 +35,21 @@ describe("rateLimited", () => {
     });
   });
 
+  it("holds a long window well past the default one", async () => {
+    let now = 3_000_000;
+
+    await withClock({ nowMs: () => now }, () => {
+      for (let i = 0; i < 3; i++) rateLimited("slow:burn", 3, 3_600_000);
+      expect(rateLimited("slow:burn", 3, 3_600_000)).toBe(true);
+
+      now += 120_000;
+      expect(rateLimited("slow:burn", 3, 3_600_000)).toBe(true);
+
+      now += 3_600_000;
+      expect(rateLimited("slow:burn", 3, 3_600_000)).toBe(false);
+    });
+  });
+
   it("keeps live buckets limited while overflowing, instead of resetting everyone", async () => {
     const now = 2_000_000;
 

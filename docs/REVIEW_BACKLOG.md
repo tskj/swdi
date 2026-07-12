@@ -128,12 +128,14 @@ existing counters are never sacrificed (evicting to make room would let a key-mi
 flood forget victims' counters). Unit-tested (vitest gained the `@/` alias and a
 server-only stub for this); KNOWN_ISSUES documents the one-trusted-hop assumption.
 
-### 19. Unauthenticated, unmetered 8MB-per-id storage [HIGH]
-Anyone can `PUT /api/sync/<any 32-hex>` with `expectedVersion: 0`, an invented bearer token, and
-up to 8,000,000 chars (`src/app/api/sync/[id]/route.ts:78-90`; `SYNC_DATA_MAX_CHARS`). No secret
-required, bytes never validated as real ciphertext, no quota, TTL, or cleanup. Free key-value
-store and a cheap DB-fill / hosting-cost DoS. Not in KNOWN_ISSUES.
-Fix: global/per-window storage budget, costed first-write, sweep of never-updated blobs.
+### 19. Unauthenticated, unmetered 8MB-per-id storage [HIGH] — DONE 2026-07-13
+Registration (the only unauthenticated write) is priced separately: 30 per hour per
+address, on top of the per-minute limit. A global capacity gate (20k ids / 10 GB,
+checked only at registration) guards the bill; at capacity, blobs that registered and
+never synced again are swept after two weeks (owners keep local data; the next sync
+re-registers), and refusing new registrations (503) is the last resort. Active users
+are never swept, never refused. API-tested; semantics in KNOWN_ISSUES. Bytes still are
+not validated as ciphertext: they are opaque by design, and the budget is the defense.
 
 ### 20. syncId logged in cleartext [MEDIUM] — DONE 2026-07-12
 `withRequest` replaces any 32-hex path segment with a hash salted per boot

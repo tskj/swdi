@@ -28,6 +28,18 @@ Two more edges of the same limiter, deliberate at this tier:
   identities pass untracked (existing counters are never sacrificed to make room). The
   128-bit sync id space is what keeps enumeration infeasible regardless.
 
+## The sync store prices registration and can sweep abandoned blobs
+
+Registration (the first PUT for a sync id) is the server's only unauthenticated write,
+so it has its own allowance (30 per hour per address) on top of the per-minute limit,
+and a global capacity ceiling (20k ids / 10 GB, constants in
+`src/app/api/sync/[id]/route.ts`) guards the hosting bill. At capacity, blobs that
+registered and were never updated for two weeks are swept before new registrations are
+refused. The consequence to know: a device that synced exactly once and then went idle
+for two weeks can lose its SERVER copy under capacity pressure. Its local data is
+untouched, and its next sync re-uploads and re-registers; the dashboard just shows
+nothing for that key until then. Active users are never swept and never refused.
+
 ## Backfilled reading carries no donation weight
 
 A page vouched for via backfill (`assumedReadAt`) counts as read everywhere visible, but

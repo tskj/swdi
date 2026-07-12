@@ -9,15 +9,18 @@ import { nowMs } from "@/lib/clock";
 const WINDOW_MS   = 60_000;
 const MAX_BUCKETS = 10_000;
 
-type Bucket = { windowStart: number; count: number };
+type Bucket = { windowStart: number; windowMs: number; count: number };
 
 const buckets = new Map<string, Bucket>();
 
-export function rateLimited(key: string, limit: number): boolean {
+/** Over the limit for this key? Defaults to a one-minute window; pass a longer one
+ *  for slow-burn allowances (registrations). The window rides in the bucket, so keys
+ *  with different windows coexist. */
+export function rateLimited(key: string, limit: number, windowMs: number = WINDOW_MS): boolean {
   const now    = nowMs();
   const bucket = buckets.get(key);
 
-  if (bucket === undefined || now - bucket.windowStart >= WINDOW_MS) {
+  if (bucket === undefined || now - bucket.windowStart >= bucket.windowMs) {
     if (buckets.size >= MAX_BUCKETS) evictExpired(now);
 
     // Full of live buckets: let this key through untracked. Every existing counter
@@ -27,7 +30,7 @@ export function rateLimited(key: string, limit: number): boolean {
     // untracked, since a fresh identity per request already defeats per-key limits.
     if (buckets.size >= MAX_BUCKETS) return false;
 
-    buckets.set(key, { windowStart: now, count: 1 });
+    buckets.set(key, { windowStart: now, windowMs, count: 1 });
     return false;
   }
 
@@ -37,7 +40,7 @@ export function rateLimited(key: string, limit: number): boolean {
 
 function evictExpired(now: number) {
   for (const [key, bucket] of buckets) {
-    if (now - bucket.windowStart >= WINDOW_MS) buckets.delete(key);
+    if (now - bucket.windowStart >= bucket.windowMs) buckets.delete(key);
   }
 }
 
