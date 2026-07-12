@@ -215,6 +215,61 @@ test("backfill: click links to vouch for them, and mark the current page read", 
   await page.close();
 });
 
+test("backfill un-vouch keeps dwell-earned history", async () => {
+  const TARGET_URL = "https://meaningness.com/certainty";
+  const TARGET_KEY = `swdi:page:${TARGET_URL}`;
+
+  // A target with one real dwell-earned read; the vouch will layer on top of it.
+  await worker.evaluate(async ({ key, url }) => {
+    const at = "2026-05-01T00:00:00.000Z";
+    const record = {
+      v: 1, url, title: "Certainty",
+      firstSeenAt: at, lastVisitAt: at, lastReadAt: at,
+      outline: [{ h: "real0001", w: 60, s: null }, { h: "vouc0001", w: 40, s: null }],
+      read:    { real0001: { at, dwellMs: 30_000, words: 60 } },
+      seen:    { real0001: at, vouc0001: at },
+      cleared: {},
+      furthestReadHash: "real0001",
+      assumedReadAt: null, assumedClearedAt: null,
+    };
+    await chrome.storage.local.set({ [key]: record });
+  }, { key: TARGET_KEY, url: TARGET_URL });
+
+  const page = await context.newPage();
+  await page.goto(PAGE_URL);
+  await expect.poll(async () => (await storedRecord())?.outline?.length ?? 0, { timeout: 15_000 }).toBeGreaterThan(10);
+
+  await worker.evaluate(async () => {
+    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+    await chrome.tabs.sendMessage(tab.id, { type: "swdi:set-backfill", value: true });
+  });
+  await expect(page.locator(".swdi-backfill")).toBeVisible();
+
+  const targetRecord = () => worker.evaluate(async (key) => (await chrome.storage.local.get(key))[key] ?? null, TARGET_KEY);
+
+  // First click vouches on top of the real record: the unread paragraph materializes.
+  await page.locator(`a[href="/certainty"]`).first().click();
+  await expect.poll(async () => (await targetRecord())?.assumedReadAt ?? null, { timeout: 10_000 }).not.toBeNull();
+  expect(Object.keys((await targetRecord()).read).length).toBe(2);
+
+  // The second click un-vouches: the materialized read goes (tombstoned so the undo
+  // syncs), the dwell-earned read stays, and the record survives. It used to delete
+  // the whole record, real history included.
+  await page.locator(`a[href="/certainty"]`).first().click();
+  await expect.poll(async () => {
+    const record = await targetRecord();
+    return record === null ? "record deleted" : record.assumedReadAt;
+  }, { timeout: 10_000 }).toBeNull();
+
+  const after = await targetRecord();
+  expect(Object.keys(after.read)).toEqual(["real0001"]);
+  expect(after.cleared["vouc0001"]).toBeTruthy();
+  expect(after.assumedClearedAt).not.toBeNull();
+
+  await page.keyboard.press("Escape");
+  await page.close();
+});
+
 test("'I've read this far' marks everything above read and clears everything below", async () => {
   await worker.evaluate((key) => chrome.storage.local.remove(key), PAGE_KEY);
 

@@ -53,13 +53,13 @@ revoked whole-page vouch is reinstated the same way. `lastContextMenuY` is null 
 real right-click happens, so a keyboard-opened menu (no coordinates) is a no-op instead
 of a full page wipe. Both paths are e2e-covered.
 
-### 6. Backfill undo deletes real history [HIGH]
-`toggleBackfilled` (`extension/src/content.ts:634-646`): first click vouches even a page with a
-full dwell-earned record; second click `removePage`s the entire record and stamps a
-sync-propagating deletion tombstone (`storage.ts:44-50`). The `stubbed` set is session-only, so
-the same misclick on the next page is not even undoable.
-Fix: undo reverts the vouch (clear `assumedReadAt` / restore pre-vouch record), never deletes;
-track vouch-vs-preexisting in the record, not session memory.
+### 6. Backfill undo deletes real history [HIGH] — DONE 2026-07-12
+The toggle now keys on the record itself (`assumedReadAt`), not session memory, so it
+stays undoable on the next page, day, or device. Un-vouching (`unvouch` in content.ts)
+removes exactly what the vouch added: materialized reads are recognizable forever
+(zero dwell, stamped at the vouch time) and get tombstoned so the revert syncs;
+dwell-earned reads are never touched. Only a pure stub with no history at all is still
+deleted outright, which keeps the old clean-undo behavior for the misclick case.
 
 ### 7. Inner-scroll layouts void the parked-page protection [MEDIUM] — DONE 2026-07-12
 Same fix as #4: the anchor paragraph's `getBoundingClientRect` is viewport-relative and

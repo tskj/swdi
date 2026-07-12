@@ -123,14 +123,24 @@ export function mergeRecords(mine: PageRecord, stored: PageRecord): void {
     .filter((at) => mine.assumedClearedAt === null || at > mine.assumedClearedAt);
   mine.assumedReadAt = vouches.sort()[0] ?? null;
 
-  const index = new Map(mine.outline.map((entry, i) => [entry.h, i] as const));
+  recomputeFurthest(mine);
+}
+
+/**
+ * Point `furthestReadHash` at the deepest read paragraph in outline order, so it can
+ * never point past (or at) something that is no longer read.
+ */
+export function recomputeFurthest(record: PageRecord): void {
+  const index = new Map(record.outline.map((entry, i) => [entry.h, i] as const));
+
   let furthest: string | null = null;
-  let deepest = -1;
-  for (const hash of Object.keys(mine.read)) {
+  let deepest  = -1;
+  for (const hash of Object.keys(record.read)) {
     const i = index.get(hash) ?? -1;
     if (i > deepest) { deepest = i; furthest = hash; }
   }
-  mine.furthestReadHash = furthest;
+
+  record.furthestReadHash = furthest;
 }
 
 /**

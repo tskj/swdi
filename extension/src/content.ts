@@ -7,8 +7,10 @@ import {
   nowIso,
   nowMs,
   readThresholdMs,
+  recomputeFurthest,
   splitLinkTarget,
   summarize,
+  summaryReadLevel,
   targetReadLevel,
   normalizePageUrl,
 } from "@swdi/shared";
@@ -679,9 +681,6 @@ function setBackfillMode(on: boolean) {
   banner.appendChild(done);
   document.body.appendChild(banner);
 
-  // Pages stubbed during this session, so a second click can undo them.
-  const stubbed = new Set<string>();
-
   const onClick = (event: MouseEvent) => {
     const target = event.target;
     if (!(target instanceof Element)) return;
@@ -696,7 +695,7 @@ function setBackfillMode(on: boolean) {
     const link = splitLinkTarget(anchor.href);
     if (link === null) return;
 
-    void toggleBackfilled(link.page, anchor, stubbed);
+    void toggleBackfilled(link.page, anchor);
   };
 
   const onKey = (event: KeyboardEvent) => {
@@ -716,18 +715,58 @@ function setBackfillMode(on: boolean) {
   backfillTeardown = teardown;
 }
 
-async function toggleBackfilled(pageUrl: string, anchor: HTMLAnchorElement, stubbed: Set<string>): Promise<void> {
-  if (stubbed.has(pageUrl)) {
-    await removePage(pageUrl);
-    stubbed.delete(pageUrl);
-    applyBadge(anchor, "none");
+// The toggle keys on the record itself, never session memory, so it stays undoable
+// on the next page, the next day, the next device: a vouched target un-vouches,
+// anything else vouches.
+async function toggleBackfilled(pageUrl: string, anchor: HTMLAnchorElement): Promise<void> {
+  const stored = await loadPageRecord(pageUrl);
+
+  if (stored === null || stored.assumedReadAt === null) {
+    const title = (anchor.textContent ?? "").trim().slice(0, 200) || pageUrl;
+    await vouchFor(pageUrl, title);
+    applyBadge(anchor, "read");
     return;
   }
 
-  const title = (anchor.textContent ?? "").trim().slice(0, 200) || pageUrl;
-  await vouchFor(pageUrl, title);
-  stubbed.add(pageUrl);
-  applyBadge(anchor, "read");
+  const record = await unvouch(stored);
+  applyBadge(anchor, record === null ? "none" : summaryReadLevel(summarize(record)));
+}
+
+/**
+ * Revert a vouch: exactly what the vouch added goes away, and nothing else. The
+ * materialized reads are recognizable forever (zero dwell, stamped at the vouch
+ * time), so this never needs session memory; dwell-earned reads are never touched.
+ * The removals are tombstoned so the un-vouch holds through merges and sync. Only a
+ * pure stub, a record the vouch itself created and nothing ever visited, is deleted
+ * outright; its deletion tombstone keeps stale copies from resurrecting it.
+ */
+async function unvouch(record: PageRecord): Promise<PageRecord | null> {
+  const assumed = record.assumedReadAt;
+  if (assumed === null) return record;
+
+  const at = nowIso();
+  for (const [hash, entry] of Object.entries(record.read)) {
+    if (entry.at !== assumed || entry.dwellMs !== 0) continue;
+
+    delete record.read[hash];
+    record.cleared[hash] = at;
+  }
+
+  record.assumedReadAt    = null;
+  record.assumedClearedAt = at;
+
+  const remaining   = Object.values(record.read).map((r) => r.at).sort();
+  record.lastReadAt = remaining[remaining.length - 1] ?? null;
+  recomputeFurthest(record);
+
+  if (record.outline.length === 0 && Object.keys(record.read).length === 0) {
+    await removePage(record.url);
+    return null;
+  }
+
+  await savePage(record, summarize(record));
+  chrome.runtime.sendMessage({ type: "swdi:page-flushed" }).catch(() => {});
+  return record;
 }
 
 // One quiet pill at the bottom of the page, replacing any previous one: the way back
