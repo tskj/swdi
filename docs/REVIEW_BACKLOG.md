@@ -99,23 +99,19 @@ reading views are unaffected.
 
 ## Tier 4 — stale and misleading copy (two are self-inflicted this session)
 
-### 13. Proposal explains itself by the wrong metric [MEDIUM]
-"in proportion to time spent" (`src/app/dashboard/budget-section.tsx:163`) and the per-line dwell
-durations (`:173`) contradict the split, which is now word-count weighted
-(`src/app/dashboard/derive.ts:90-95`). Introduced this session when weighting switched to words.
-Fix: copy and the displayed measure should both follow word count.
+### 13. Proposal explains itself by the wrong metric [MEDIUM] — DONE 2026-07-12
+Copy says "in proportion to how much of each author you read" and each line shows the
+word count that actually weights the split, instead of dwell time.
 
-### 14. SupportAsk copy is stale [MEDIUM]
-"When monthly budgets arrive, should SWDI include itself in your split?"
-(`DashboardClient.tsx:283`). Budgets have arrived; it renders directly above the budget section.
+### 14. SupportAsk copy is stale [MEDIUM] — DONE 2026-07-12
+Now asks "Should SWDI include itself in your monthly split?"; budgets have arrived.
 
 ### 15. Landing contradicts README and manifest [MEDIUM] — DONE 2026-07-12 with #10
 The landing now says it runs on every page and decides for itself, matching the README
 and the manifest.
 
-### 16. "creator" survives in code comments [LOW]
-`shared/src/registry.ts:3,4,26`. Not user-facing, but authors-never-creators is easiest to hold
-when the code says authors too.
+### 16. "creator" survives in code comments [LOW] — DONE 2026-07-12
+`shared/src/registry.ts` says authors now; no "creator" remains anywhere in source.
 
 ### 17. Grammar and singular/plural [LOW] — popup half DONE 2026-07-12
 "1 paragraph is new or changed" now has its singular form. "For you who reads" / "For

@@ -1,7 +1,7 @@
 import { z } from "zod";
 
-// The creator registry: a public mapping from the places content lives to the payment
-// channels its creators already have. The registry is a commons, reached through a
+// The author registry: a public mapping from the places writing lives to the payment
+// channels its authors already have. The registry is a commons, reached through a
 // configurable URL; v0 ships as versioned JSON in this repo, served by /api/registry.
 
 export const paymentKindSchema = z.enum([
@@ -23,7 +23,7 @@ export const paymentMethodSchema = z.object({
 
 export const registryEntrySchema = z.object({
   name:  z.string(),
-  sites: z.array(z.string()), // canonical https URL prefixes the creator's content lives under
+  sites: z.array(z.string()), // canonical https URL prefixes the author's writing lives under
 
   payment: z.array(paymentMethodSchema),
 

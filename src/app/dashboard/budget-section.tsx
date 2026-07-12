@@ -16,7 +16,7 @@ import {
   proposalWithShare,
 } from "@swdi/shared";
 import { csR, squircle, superellipse3 } from "@/lib/squircle";
-import { AuthorEngagement, PageStats, authorEngagement, currentMonth, formatDuration, formatMonth, pluralize } from "./derive";
+import { AuthorEngagement, PageStats, authorEngagement, currentMonth, formatCount, formatMonth, pluralize } from "./derive";
 
 // The donation loop: one monthly amount, split in proportion to your reading,
 // reviewed and adjusted by you, then paid down author by author. Each link opens the
@@ -196,7 +196,7 @@ function Proposal(props: {
     <div className="mt-4 border border-(--line) bg-(--card) px-6 py-5" style={{ borderRadius: csR(12, 28), ...superellipse3 }}>
       <p className="text-[15px] text-(--ink-soft)">
         Proposed from your {props.usingAllTime ? "reading so far (nothing read this month yet)" : "reading this month"},
-        in proportion to time spent. Adjust anything, or let it stand.
+        in proportion to how much of each author you read. Adjust anything, or let it stand.
       </p>
 
       <ul className="mt-4 space-y-3">
@@ -206,7 +206,7 @@ function Proposal(props: {
             <li key={line.key} className="flex items-center gap-3">
               <span className="min-w-0 flex-1 truncate">{line.name}</span>
               {engagement !== undefined && (
-                <span className="shrink-0 font-sans text-[12px] text-(--ink-soft)">{formatDuration(engagement.dwellMs)}</span>
+                <span className="shrink-0 font-sans text-[12px] text-(--ink-soft)">{formatCount(engagement.words)} words</span>
               )}
               {line.key === SWDI_ALLOCATION_KEY && (
                 <span className="shrink-0 font-sans text-[12px] text-(--ink-soft)">your {props.sharePct}% share</span>

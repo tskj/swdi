@@ -323,10 +323,9 @@ function SupportAsk(props: { onAnswer: (include: boolean, pct: number) => void }
     <section className="mt-8 border border-(--line) bg-(--card) px-7 py-6" style={{ borderRadius: csR(12, 28), ...superellipse3 }}>
       <h2 className="font-display text-[20px] font-medium">One question, asked once</h2>
       <p className="mt-3 text-[15px]">
-        When monthly budgets arrive, should SWDI include itself in your split? The
-        suggested share is 1 percent, and it is what keeps the servers on. Your answer
-        is remembered, you can change or remove it at any time, and it will never add
-        itself back.
+        Should SWDI include itself in your monthly split? The suggested share is 1
+        percent, and it is what keeps the servers on. Your answer is remembered, you
+        can change or remove it at any time, and it will never add itself back.
       </p>
       <div className="mt-5 flex gap-3">
         <button
