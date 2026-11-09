@@ -1,7 +1,9 @@
 // Re-checks every payment link and site in registry/registry.json so verifiedAt dates
 // do not quietly rot. Bot walls (403/429) count as reachable: PayPal and Ko-fi answer
 // automated requests with challenges while working fine in a browser. Only hard
-// failures (404/410, network errors) are reported as broken. Exit 1 when anything is.
+// failures (404/410, network errors) are reported as broken. Always exits 0: this runs as a
+// Railway cron, where a non-zero exit shows up as a crashed deployment and an alert email.
+// A dead author link is registry upkeep, not an outage; read the log to find it.
 
 import { readFileSync } from "node:fs";
 
@@ -65,4 +67,3 @@ for (const entry of registry.entries) {
 }
 
 console.log(broken === 0 ? "\nAll reachable (bot walls excluded)." : `\n${broken} broken link(s); update registry/registry.json.`);
-process.exit(broken === 0 ? 0 : 1);
